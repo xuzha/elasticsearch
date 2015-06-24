@@ -19,34 +19,48 @@
 
 package org.elasticsearch.get;
 
+import com.google.common.collect.ImmutableSet;
+
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ShardOperationFailedException;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.flush.FlushResponse;
 import org.elasticsearch.action.delete.DeleteResponse;
-import org.elasticsearch.action.get.*;
+import org.elasticsearch.action.get.GetRequestBuilder;
+import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.get.MultiGetRequest;
+import org.elasticsearch.action.get.MultiGetRequestBuilder;
+import org.elasticsearch.action.get.MultiGetResponse;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
-import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.lucene.uid.Versions;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
+import org.elasticsearch.index.mapper.internal.TimestampFieldMapper;
 import org.elasticsearch.test.ElasticsearchIntegrationTest;
 import org.elasticsearch.test.junit.annotations.TestLogging;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 
 public class GetActionTests extends ElasticsearchIntegrationTest {
 
@@ -74,14 +88,18 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         response = client().prepareGet(indexOrAlias(), "type1", "1").setFields(Strings.EMPTY_ARRAY).get();
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getIndex(), equalTo("test"));
-        assertThat(response.getFields().size(), equalTo(0));
+        Set<String> fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo(Collections.<String>emptySet()));
         assertThat(response.getSourceAsBytes(), nullValue());
 
         logger.info("--> realtime get 1 (no source, explicit)");
         response = client().prepareGet(indexOrAlias(), "type1", "1").setFetchSource(false).get();
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getIndex(), equalTo("test"));
-        assertThat(response.getFields().size(), equalTo(0));
+        fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo(Collections.<String>emptySet()));
         assertThat(response.getSourceAsBytes(), nullValue());
 
         logger.info("--> realtime get 1 (no type)");
@@ -249,87 +267,6 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
     }
 
     @Test
-    public void getFieldsWithDifferentTypes() throws Exception {
-        assertAcked(prepareCreate("test").setSettings(Settings.settingsBuilder().put("index.refresh_interval", -1))
-                .addMapping("type1", jsonBuilder().startObject().startObject("type1").endObject().endObject())
-                .addMapping("type2", jsonBuilder().startObject().startObject("type2")
-                        .startObject("properties")
-                        .startObject("str").field("type", "string").field("store", "yes").endObject()
-                        .startObject("strs").field("type", "string").field("store", "yes").endObject()
-                        .startObject("int").field("type", "integer").field("store", "yes").endObject()
-                        .startObject("ints").field("type", "integer").field("store", "yes").endObject()
-                        .startObject("date").field("type", "date").field("store", "yes").endObject()
-                        .startObject("binary").field("type", "binary").field("store", "yes").endObject()
-                        .endObject()
-                        .endObject().endObject()));
-        ensureGreen();
-
-        client().prepareIndex("test", "type1", "1").setSource(
-                jsonBuilder().startObject()
-                        .field("str", "test")
-                        .field("strs", new String[]{"A", "B", "C"})
-                        .field("int", 42)
-                        .field("ints", new int[]{1, 2, 3, 4})
-                        .field("date", "2012-11-13T15:26:14.000Z")
-                        .field("binary", Base64.encodeBytes(new byte[]{1, 2, 3}))
-                        .endObject()).get();
-
-        client().prepareIndex("test", "type2", "1").setSource(
-                jsonBuilder().startObject()
-                        .field("str", "test")
-                        .field("strs", new String[]{"A", "B", "C"})
-                        .field("int", 42)
-                        .field("ints", new int[]{1, 2, 3, 4})
-                        .field("date", "2012-11-13T15:26:14.000Z")
-                        .field("binary", Base64.encodeBytes(new byte[]{1, 2, 3}))
-                        .endObject()).get();
-
-        // realtime get with stored source
-        logger.info("--> realtime get (from source)");
-        GetResponse getResponse = client().prepareGet("test", "type1", "1").setFields("str", "strs", "int", "ints", "date", "binary").get();
-        assertThat(getResponse.isExists(), equalTo(true));
-        assertThat((String) getResponse.getField("str").getValue(), equalTo("test"));
-        assertThat(getResponse.getField("strs").getValues(), contains((Object) "A", "B", "C"));
-        assertThat((Long) getResponse.getField("int").getValue(), equalTo(42l));
-        assertThat(getResponse.getField("ints").getValues(), contains((Object) 1L, 2L, 3L, 4L));
-        assertThat((String) getResponse.getField("date").getValue(), equalTo("2012-11-13T15:26:14.000Z"));
-        assertThat(getResponse.getField("binary").getValue(), instanceOf(String.class)); // its a String..., not binary mapped
-
-        logger.info("--> realtime get (from stored fields)");
-        getResponse = client().prepareGet("test", "type2", "1").setFields("str", "strs", "int", "ints", "date", "binary").get();
-        assertThat(getResponse.isExists(), equalTo(true));
-        assertThat((String) getResponse.getField("str").getValue(), equalTo("test"));
-        assertThat(getResponse.getField("strs").getValues(), contains((Object) "A", "B", "C"));
-        assertThat((Integer) getResponse.getField("int").getValue(), equalTo(42));
-        assertThat(getResponse.getField("ints").getValues(), contains((Object) 1, 2, 3, 4));
-        assertThat((String) getResponse.getField("date").getValue(), equalTo("2012-11-13T15:26:14.000Z"));
-        assertThat((BytesReference) getResponse.getField("binary").getValue(), equalTo((BytesReference) new BytesArray(new byte[]{1, 2, 3})));
-
-        logger.info("--> flush the index, so we load it from it");
-        flush();
-
-        logger.info("--> non realtime get (from source)");
-        getResponse = client().prepareGet("test", "type1", "1").setFields("str", "strs", "int", "ints", "date", "binary").get();
-        assertThat(getResponse.isExists(), equalTo(true));
-        assertThat((String) getResponse.getField("str").getValue(), equalTo("test"));
-        assertThat(getResponse.getField("strs").getValues(), contains((Object) "A", "B", "C"));
-        assertThat((Long) getResponse.getField("int").getValue(), equalTo(42l));
-        assertThat(getResponse.getField("ints").getValues(), contains((Object) 1L, 2L, 3L, 4L));
-        assertThat((String) getResponse.getField("date").getValue(), equalTo("2012-11-13T15:26:14.000Z"));
-        assertThat(getResponse.getField("binary").getValue(), instanceOf(String.class)); // its a String..., not binary mapped
-
-        logger.info("--> non realtime get (from stored fields)");
-        getResponse = client().prepareGet("test", "type2", "1").setFields("str", "strs", "int", "ints", "date", "binary").get();
-        assertThat(getResponse.isExists(), equalTo(true));
-        assertThat((String) getResponse.getField("str").getValue(), equalTo("test"));
-        assertThat(getResponse.getField("strs").getValues(), contains((Object) "A", "B", "C"));
-        assertThat((Integer) getResponse.getField("int").getValue(), equalTo(42));
-        assertThat(getResponse.getField("ints").getValues(), contains((Object) 1, 2, 3, 4));
-        assertThat((String) getResponse.getField("date").getValue(), equalTo("2012-11-13T15:26:14.000Z"));
-        assertThat((BytesReference) getResponse.getField("binary").getValue(), equalTo((BytesReference) new BytesArray(new byte[]{1, 2, 3})));
-    }
-
-    @Test
     public void testGetDocWithMultivaluedFields() throws Exception {
         String mapping1 = XContentFactory.jsonBuilder().startObject().startObject("type1")
                 .startObject("properties")
@@ -362,7 +299,9 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getId(), equalTo("1"));
         assertThat(response.getType(), equalTo("type1"));
-        assertThat(response.getFields().size(), equalTo(1));
+        Set<String> fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo((Set<String>) ImmutableSet.of("field")));
         assertThat(response.getFields().get("field").getValues().size(), equalTo(2));
         assertThat(response.getFields().get("field").getValues().get(0).toString(), equalTo("1"));
         assertThat(response.getFields().get("field").getValues().get(1).toString(), equalTo("2"));
@@ -372,7 +311,9 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getType(), equalTo("type2"));
         assertThat(response.getId(), equalTo("1"));
-        assertThat(response.getFields().size(), equalTo(1));
+        fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo((Set<String>) ImmutableSet.of("field")));
         assertThat(response.getFields().get("field").getValues().size(), equalTo(2));
         assertThat(response.getFields().get("field").getValues().get(0).toString(), equalTo("1"));
         assertThat(response.getFields().get("field").getValues().get(1).toString(), equalTo("2"));
@@ -382,7 +323,9 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         response = client().prepareGet("test", "type1", "1").setFields("field").get();
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getId(), equalTo("1"));
-        assertThat(response.getFields().size(), equalTo(1));
+        fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo((Set<String>) ImmutableSet.of("field")));
         assertThat(response.getFields().get("field").getValues().size(), equalTo(2));
         assertThat(response.getFields().get("field").getValues().get(0).toString(), equalTo("1"));
         assertThat(response.getFields().get("field").getValues().get(1).toString(), equalTo("2"));
@@ -390,7 +333,9 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         response = client().prepareGet("test", "type2", "1").setFields("field").get();
         assertThat(response.isExists(), equalTo(true));
         assertThat(response.getId(), equalTo("1"));
-        assertThat(response.getFields().size(), equalTo(1));
+        fields = new HashSet<>(response.getFields().keySet());
+        fields.remove(TimestampFieldMapper.NAME); // randomly enabled via templates
+        assertThat(fields, equalTo((Set<String>) ImmutableSet.of("field")));
         assertThat(response.getFields().get("field").getValues().size(), equalTo(2));
         assertThat(response.getFields().get("field").getValues().get(0).toString(), equalTo("1"));
         assertThat(response.getFields().get("field").getValues().get(1).toString(), equalTo("2"));
@@ -736,28 +681,42 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
 
     @Test
     public void testGetFields_metaData() throws Exception {
-        assertAcked(prepareCreate("test").addAlias(new Alias("alias"))
+        assertAcked(prepareCreate("test")
+                .addMapping("parent")
+                .addMapping("my-type1", "_timestamp", "enabled=true", "_ttl", "enabled=true", "_parent", "type=parent")
+                .addAlias(new Alias("alias"))
                 .setSettings(Settings.settingsBuilder().put("index.refresh_interval", -1)));
 
         client().prepareIndex("test", "my-type1", "1")
                 .setRouting("1")
+                .setTimestamp("205097")
+                .setTTL(10000000000000L)
+                .setParent("parent_1")
                 .setSource(jsonBuilder().startObject().field("field1", "value").endObject())
                 .get();
 
         GetResponse getResponse = client().prepareGet(indexOrAlias(), "my-type1", "1")
                 .setRouting("1")
-                .setFields("field1", "_routing")
+                .setFields("field1")
                 .get();
         assertThat(getResponse.isExists(), equalTo(true));
         assertThat(getResponse.getField("field1").isMetadataField(), equalTo(false));
         assertThat(getResponse.getField("field1").getValue().toString(), equalTo("value"));
         assertThat(getResponse.getField("_routing").isMetadataField(), equalTo(true));
         assertThat(getResponse.getField("_routing").getValue().toString(), equalTo("1"));
+        assertThat(getResponse.getField("_timestamp").isMetadataField(), equalTo(true));
+        assertThat(getResponse.getField("_timestamp").getValue().toString(), equalTo("205097"));
+        assertThat(getResponse.getField("_ttl").isMetadataField(), equalTo(true));
+        // TODO: _ttl should return the original value, but it does not work today because
+        // it would use now() instead of the value of _timestamp to rebase
+        // assertThat(getResponse.getField("_ttl").getValue().toString(), equalTo("10000000205097"));
+        assertThat(getResponse.getField("_parent").isMetadataField(), equalTo(true));
+        assertThat(getResponse.getField("_parent").getValue().toString(), equalTo("parent_1"));
 
         flush();
 
-        client().prepareGet(indexOrAlias(), "my-type1", "1")
-                .setFields("field1", "_routing")
+        getResponse = client().prepareGet(indexOrAlias(), "my-type1", "1")
+                .setFields("field1")
                 .setRouting("1")
                 .get();
         assertThat(getResponse.isExists(), equalTo(true));
@@ -765,6 +724,14 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         assertThat(getResponse.getField("field1").getValue().toString(), equalTo("value"));
         assertThat(getResponse.getField("_routing").isMetadataField(), equalTo(true));
         assertThat(getResponse.getField("_routing").getValue().toString(), equalTo("1"));
+        assertThat(getResponse.getField("_timestamp").isMetadataField(), equalTo(true));
+        assertThat(getResponse.getField("_timestamp").getValue().toString(), equalTo("205097"));
+        assertThat(getResponse.getField("_ttl").isMetadataField(), equalTo(true));
+        // TODO: _ttl should return the original value, but it does not work today because
+        // it would use now() instead of the value of _timestamp to rebase
+        //assertThat(getResponse.getField("_ttl").getValue().toString(), equalTo("10000000000000"));
+        assertThat(getResponse.getField("_parent").isMetadataField(), equalTo(true));
+        assertThat(getResponse.getField("_parent").getValue().toString(), equalTo("parent_1"));
     }
 
     @Test
@@ -965,7 +932,11 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
                 "    \"refresh_interval\": \"-1\"\n" +
                 "  },\n" +
                 "  \"mappings\": {\n" +
-                "    \"parentdoc\": {},\n" +
+                "    \"parentdoc\": {\n" +
+                "      \"_ttl\": {\n" +
+                "        \"enabled\": true\n" +
+                "      }\n" +
+                "    },\n" +
                 "    \"doc\": {\n" +
                 "      \"_parent\": {\n" +
                 "        \"type\": \"parentdoc\"\n" +
@@ -1051,28 +1022,32 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         client().prepareIndex("test", "doc").setId("1").setSource(doc).setRouting("1").get();
     }
 
-
-    @Test
-    public void testUngeneratedFieldsNotPartOfSourceUnstored() throws IOException {
-        indexSingleDocumentWithUngeneratedFieldsThatAreNeverPartOf_source(false, randomBoolean());
-        String[] fieldsList = {"_timestamp"};
-        String[] alwaysStoredFieldsList = {"_routing", "_size"};
-        // before refresh - document is only in translog
-        assertGetFieldsAlwaysNull(indexOrAlias(), "doc", "1", fieldsList, "1");
-        assertGetFieldsAlwaysWorks(indexOrAlias(), "doc", "1", alwaysStoredFieldsList, "1");
-        refresh();
-        //after refresh - document is in translog and also indexed
-        assertGetFieldsAlwaysNull(indexOrAlias(), "doc", "1", fieldsList, "1");
-        assertGetFieldsAlwaysWorks(indexOrAlias(), "doc", "1", alwaysStoredFieldsList, "1");
-        flush();
-        //after flush - document is in not anymore translog - only indexed
-        assertGetFieldsAlwaysNull(indexOrAlias(), "doc", "1", fieldsList, "1");
-        assertGetFieldsAlwaysWorks(indexOrAlias(), "doc", "1", alwaysStoredFieldsList, "1");
-    }
-
     @Test
     public void testUngeneratedFieldsNotPartOfSourceStored() throws IOException {
-        indexSingleDocumentWithUngeneratedFieldsThatAreNeverPartOf_source(true, randomBoolean());
+        String createIndexSource = "{\n" +
+            "  \"settings\": {\n" +
+            "    \"index.translog.disable_flush\": true,\n" +
+            "    \"refresh_interval\": \"-1\"\n" +
+            "  },\n" +
+            "  \"mappings\": {\n" +
+            "    \"parentdoc\": {},\n" +
+            "    \"doc\": {\n" +
+            "      \"_timestamp\": {\n" +
+            "        \"enabled\": true\n" +
+            "      },\n" +
+            "      \"_size\": {\n" +
+            "        \"enabled\": true\n" +
+            "      }\n" +
+            "    }\n" +
+            "  }\n" +
+            "}";
+
+        assertAcked(prepareCreate("test").addAlias(new Alias("alias")).setSource(createIndexSource));
+        ensureGreen();
+        String doc = "{\n" +
+            "  \"text\": \"some text.\"\n" +
+            "}\n";
+        client().prepareIndex("test", "doc").setId("1").setSource(doc).setRouting("1").get();
         String[] fieldsList = {"_timestamp", "_size", "_routing"};
         // before refresh - document is only in translog
         assertGetFieldsAlwaysWorks(indexOrAlias(), "doc", "1", fieldsList, "1");
@@ -1083,36 +1058,6 @@ public class GetActionTests extends ElasticsearchIntegrationTest {
         //after flush - document is in not anymore translog - only indexed
         assertGetFieldsAlwaysWorks(indexOrAlias(), "doc", "1", fieldsList, "1");
     }
-
-    void indexSingleDocumentWithUngeneratedFieldsThatAreNeverPartOf_source(boolean stored, boolean sourceEnabled) {
-        String storedString = stored ? "yes" : "no";
-        String createIndexSource = "{\n" +
-                "  \"settings\": {\n" +
-                "    \"index.translog.disable_flush\": true,\n" +
-                "    \"refresh_interval\": \"-1\"\n" +
-                "  },\n" +
-                "  \"mappings\": {\n" +
-                "    \"parentdoc\": {},\n" +
-                "    \"doc\": {\n" +
-                "      \"_timestamp\": {\n" +
-                "        \"store\": \"" + storedString + "\",\n" +
-                "        \"enabled\": true\n" +
-                "      },\n" +
-                "      \"_size\": {\n" +
-                "        \"enabled\": true\n" +
-                "      }\n" +
-                "    }\n" +
-                "  }\n" +
-                "}";
-
-        assertAcked(prepareCreate("test").addAlias(new Alias("alias")).setSource(createIndexSource));
-        ensureGreen();
-        String doc = "{\n" +
-                "  \"text\": \"some text.\"\n" +
-                "}\n";
-        client().prepareIndex("test", "doc").setId("1").setSource(doc).setRouting("1").get();
-    }
-
 
     @Test
     public void testGeneratedStringFieldsUnstored() throws IOException {

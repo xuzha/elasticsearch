@@ -19,7 +19,9 @@
 
 package org.elasticsearch.index.mapper.update;
 
+import org.elasticsearch.Version;
 import org.elasticsearch.action.admin.indices.mapping.get.GetMappingsResponse;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -80,7 +82,7 @@ public class UpdateMappingTests extends ElasticsearchSingleNodeTest {
     private void testNoConflictWhileMergingAndMappingChanged(XContentBuilder mapping, XContentBuilder mappingUpdate, XContentBuilder expectedMapping) throws IOException {
         IndexService indexService = createIndex("test", Settings.settingsBuilder().build(), "type", mapping);
         // simulate like in MetaDataMappingService#putMapping
-        MergeResult mergeResult = indexService.mapperService().documentMapper("type").merge(indexService.mapperService().parse("type", new CompressedXContent(mappingUpdate.bytes()), true).mapping(), false);
+        MergeResult mergeResult = indexService.mapperService().documentMapper("type").merge(indexService.mapperService().parse("type", new CompressedXContent(mappingUpdate.bytes()), true).mapping(), false, false);
         // assure we have no conflicts
         assertThat(mergeResult.buildConflicts().length, equalTo(0));
         // make sure mappings applied
@@ -104,7 +106,7 @@ public class UpdateMappingTests extends ElasticsearchSingleNodeTest {
         IndexService indexService = createIndex("test", Settings.settingsBuilder().build(), "type", mapping);
         CompressedXContent mappingBeforeUpdate = indexService.mapperService().documentMapper("type").mappingSource();
         // simulate like in MetaDataMappingService#putMapping
-        MergeResult mergeResult = indexService.mapperService().documentMapper("type").merge(indexService.mapperService().parse("type", new CompressedXContent(mappingUpdate.bytes()), true).mapping(), true);
+        MergeResult mergeResult = indexService.mapperService().documentMapper("type").merge(indexService.mapperService().parse("type", new CompressedXContent(mappingUpdate.bytes()), true).mapping(), true, false);
         // assure we have conflicts
         assertThat(mergeResult.buildConflicts().length, equalTo(1));
         // make sure simulate flag actually worked - no mappings applied
@@ -132,7 +134,7 @@ public class UpdateMappingTests extends ElasticsearchSingleNodeTest {
 
     @Test
     public void testTimestampParsing() throws IOException {
-        IndexService indexService = createIndex("test", Settings.settingsBuilder().build());
+        IndexService indexService = createIndex("test", Settings.settingsBuilder().put(IndexMetaData.SETTING_VERSION_CREATED, Version.V_1_4_2.id).build());
         XContentBuilder indexMapping = XContentFactory.jsonBuilder();
         boolean enabled = randomBoolean();
         indexMapping.startObject()
