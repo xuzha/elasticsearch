@@ -23,6 +23,7 @@ import org.elasticsearch.search.aggregations.pipeline.bucketmetrics.avg.AvgBucke
 import org.elasticsearch.search.aggregations.pipeline.bucketmetrics.max.MaxBucketBuilder;
 import org.elasticsearch.search.aggregations.pipeline.bucketmetrics.min.MinBucketBuilder;
 import org.elasticsearch.search.aggregations.pipeline.bucketmetrics.sum.SumBucketBuilder;
+import org.elasticsearch.search.aggregations.pipeline.cumulativesum.CumulativeSumBuilder;
 import org.elasticsearch.search.aggregations.pipeline.bucketscript.BucketScriptBuilder;
 import org.elasticsearch.search.aggregations.pipeline.derivative.DerivativeBuilder;
 import org.elasticsearch.search.aggregations.pipeline.movavg.MovAvgBuilder;
@@ -56,7 +57,11 @@ public final class PipelineAggregatorBuilders {
         return new MovAvgBuilder(name);
     }
 
-    public static final BucketScriptBuilder seriesArithmetic(String name) {
+    public static final BucketScriptBuilder bucketScript(String name) {
         return new BucketScriptBuilder(name);
+    }
+
+    public static final CumulativeSumBuilder cumulativeSum(String name) {
+        return new CumulativeSumBuilder(name);
     }
 }

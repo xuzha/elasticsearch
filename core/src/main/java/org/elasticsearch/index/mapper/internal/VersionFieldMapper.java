@@ -32,10 +32,9 @@ import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.index.mapper.MapperParsingException;
 import org.elasticsearch.index.mapper.MergeMappingException;
 import org.elasticsearch.index.mapper.MergeResult;
+import org.elasticsearch.index.mapper.MetadataFieldMapper;
 import org.elasticsearch.index.mapper.ParseContext;
 import org.elasticsearch.index.mapper.ParseContext.Document;
-import org.elasticsearch.index.mapper.RootMapper;
-import org.elasticsearch.index.mapper.core.AbstractFieldMapper;
 
 import java.io.IOException;
 import java.util.Iterator;
@@ -43,7 +42,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Mapper for the _version field. */
-public class VersionFieldMapper extends AbstractFieldMapper implements RootMapper {
+public class VersionFieldMapper extends MetadataFieldMapper {
 
     public static final String NAME = "_version";
     public static final String CONTENT_TYPE = "_version";
@@ -60,10 +59,10 @@ public class VersionFieldMapper extends AbstractFieldMapper implements RootMappe
         }
     }
 
-    public static class Builder extends Mapper.Builder<Builder, VersionFieldMapper> {
+    public static class Builder extends MetadataFieldMapper.Builder<Builder, VersionFieldMapper> {
 
         public Builder() {
-            super(Defaults.NAME);
+            super(Defaults.NAME, Defaults.FIELD_TYPE);
         }
 
         @Override
@@ -116,13 +115,6 @@ public class VersionFieldMapper extends AbstractFieldMapper implements RootMappe
         }
     }
 
-    private final ThreadLocal<Field> fieldCache = new ThreadLocal<Field>() {
-        @Override
-        protected Field initialValue() {
-            return new NumericDocValuesField(NAME, -1L);
-        }
-    };
-
     public VersionFieldMapper(Settings indexSettings) {
         super(Defaults.FIELD_TYPE, true, null, indexSettings);
     }
@@ -134,8 +126,8 @@ public class VersionFieldMapper extends AbstractFieldMapper implements RootMappe
 
     @Override
     protected void parseCreateField(ParseContext context, List<Field> fields) throws IOException {
-        // see UidFieldMapper.parseCreateField
-        final Field version = fieldCache.get();
+        // see InternalEngine.updateVersion to see where the real version value is set
+        final Field version = new NumericDocValuesField(NAME, -1L);
         context.version(version);
         fields.add(version);
     }
@@ -179,10 +171,5 @@ public class VersionFieldMapper extends AbstractFieldMapper implements RootMappe
     @Override
     public void merge(Mapper mergeWith, MergeResult mergeResult) throws MergeMappingException {
         // nothing to do
-    }
-
-    @Override
-    public void close() {
-        fieldCache.remove();
     }
 }

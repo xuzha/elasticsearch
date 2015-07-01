@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
+import org.apache.lucene.search.QueryCachingPolicy;
 import org.apache.lucene.search.TopDocs;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchParseException;
@@ -72,7 +73,7 @@ import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.IndicesWarmer;
 import org.elasticsearch.indices.IndicesWarmer.TerminationHandle;
 import org.elasticsearch.indices.IndicesWarmer.WarmerContext;
-import org.elasticsearch.indices.cache.query.IndicesQueryCache;
+import org.elasticsearch.indices.cache.request.IndicesRequestCache;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.Script.ScriptParseException;
 import org.elasticsearch.script.ScriptContext;
@@ -144,7 +145,7 @@ public class SearchService extends AbstractLifecycleComponent<SearchService> {
 
     private final FetchPhase fetchPhase;
 
-    private final IndicesQueryCache indicesQueryCache;
+    private final IndicesRequestCache indicesQueryCache;
 
     private final long defaultKeepAlive;
 
@@ -159,7 +160,7 @@ public class SearchService extends AbstractLifecycleComponent<SearchService> {
     @Inject
     public SearchService(Settings settings, ClusterService clusterService, IndicesService indicesService,IndicesWarmer indicesWarmer, ThreadPool threadPool,
                          ScriptService scriptService, PageCacheRecycler pageCacheRecycler, BigArrays bigArrays, DfsPhase dfsPhase, QueryPhase queryPhase, FetchPhase fetchPhase,
-                         IndicesQueryCache indicesQueryCache) {
+                         IndicesRequestCache indicesQueryCache) {
         super(settings);
         this.threadPool = threadPool;
         this.clusterService = clusterService;
@@ -371,16 +372,18 @@ public class SearchService extends AbstractLifecycleComponent<SearchService> {
     public QuerySearchResult executeQueryPhase(QuerySearchRequest request) {
         final SearchContext context = findContext(request.id());
         contextProcessing(context);
+        IndexShard indexShard = context.indexShard();
         try {
-            final IndexCache indexCache = context.indexShard().indexService().cache();
+            final IndexCache indexCache = indexShard.indexService().cache();
+            final QueryCachingPolicy cachingPolicy = indexShard.getQueryCachingPolicy();
             context.searcher().dfSource(new CachedDfSource(context.searcher().getIndexReader(), request.dfs(), context.similarityService().similarity(),
-                    indexCache.filter(), indexCache.filterPolicy()));
+                    indexCache.query(), cachingPolicy));
         } catch (Throwable e) {
             processFailure(context, e);
             cleanContext(context);
             throw new QueryPhaseExecutionException(context, "Failed to set aggregated df", e);
         }
-        ShardSearchStats shardSearchStats = context.indexShard().searchService();
+        ShardSearchStats shardSearchStats = indexShard.searchService();
         try {
             shardSearchStats.onPreQueryPhase(context);
             long time = System.nanoTime();
@@ -446,9 +449,11 @@ public class SearchService extends AbstractLifecycleComponent<SearchService> {
         final SearchContext context = findContext(request.id());
         contextProcessing(context);
         try {
-            final IndexCache indexCache = context.indexShard().indexService().cache();
+            final IndexShard indexShard = context.indexShard();
+            final IndexCache indexCache = indexShard.indexService().cache();
+            final QueryCachingPolicy cachingPolicy = indexShard.getQueryCachingPolicy();
             context.searcher().dfSource(new CachedDfSource(context.searcher().getIndexReader(), request.dfs(), context.similarityService().similarity(),
-                    indexCache.filter(), indexCache.filterPolicy()));
+                    indexCache.query(), cachingPolicy));
         } catch (Throwable e) {
             freeContext(context.id());
             cleanContext(context);
@@ -1060,7 +1065,7 @@ public class SearchService extends AbstractLifecycleComponent<SearchService> {
                         try {
                             long now = System.nanoTime();
                             ShardSearchRequest request = new ShardSearchLocalRequest(indexShard.shardId(), indexMetaData.numberOfShards(),
-                                    SearchType.QUERY_THEN_FETCH, entry.source(), entry.types(), entry.queryCache());
+                                    SearchType.QUERY_THEN_FETCH, entry.source(), entry.types(), entry.requestCache());
                             context = createContext(request, warmerContext.searcher());
                             // if we use sort, we need to do query to sort on it and load relevant field data
                             // if not, we might as well set size=0 (and cache if needed)

@@ -21,8 +21,11 @@ package org.elasticsearch.index.shard;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
+
 import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.index.CheckIndex;
+import org.apache.lucene.search.QueryCachingPolicy;
+import org.apache.lucene.search.UsageTrackingQueryCachingPolicy;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.ThreadInterruptedException;
@@ -58,8 +61,9 @@ import org.elasticsearch.index.VersionType;
 import org.elasticsearch.index.aliases.IndexAliasesService;
 import org.elasticsearch.index.cache.IndexCache;
 import org.elasticsearch.index.cache.bitset.ShardBitsetFilterCache;
-import org.elasticsearch.index.cache.filter.FilterCacheStats;
-import org.elasticsearch.index.cache.query.ShardQueryCache;
+import org.elasticsearch.index.cache.query.QueryCacheModule.QueryCacheSettings;
+import org.elasticsearch.index.cache.query.QueryCacheStats;
+import org.elasticsearch.index.cache.request.ShardRequestCache;
 import org.elasticsearch.index.codec.CodecService;
 import org.elasticsearch.index.deletionpolicy.SnapshotDeletionPolicy;
 import org.elasticsearch.index.deletionpolicy.SnapshotIndexCommit;
@@ -99,7 +103,7 @@ import org.elasticsearch.index.warmer.WarmerStats;
 import org.elasticsearch.indices.IndicesLifecycle;
 import org.elasticsearch.indices.IndicesWarmer;
 import org.elasticsearch.indices.InternalIndicesLifecycle;
-import org.elasticsearch.indices.cache.filter.IndicesFilterCache;
+import org.elasticsearch.indices.cache.query.IndicesQueryCache;
 import org.elasticsearch.indices.recovery.RecoveryState;
 import org.elasticsearch.search.suggest.completion.Completion090PostingsFormat;
 import org.elasticsearch.search.suggest.completion.CompletionStats;
@@ -134,7 +138,7 @@ public class IndexShard extends AbstractIndexShardComponent {
     private final ShardSearchStats searchService;
     private final ShardGetService getService;
     private final ShardIndexWarmerService shardWarmerService;
-    private final ShardQueryCache shardQueryCache;
+    private final ShardRequestCache shardQueryCache;
     private final ShardFieldData shardFieldData;
     private final PercolatorQueriesRegistry percolatorQueriesRegistry;
     private final ShardPercolateService shardPercolateService;
@@ -154,7 +158,7 @@ public class IndexShard extends AbstractIndexShardComponent {
     private final EngineConfig engineConfig;
     private final TranslogConfig translogConfig;
     private final MergePolicyConfig mergePolicyConfig;
-    private final IndicesFilterCache indicesFilterCache;
+    private final IndicesQueryCache indicesQueryCache;
     private final StoreRecoveryService storeRecoveryService;
 
     private TimeValue refreshInterval;
@@ -191,7 +195,7 @@ public class IndexShard extends AbstractIndexShardComponent {
     @Inject
     public IndexShard(ShardId shardId, IndexSettingsService indexSettingsService, IndicesLifecycle indicesLifecycle, Store store, StoreRecoveryService storeRecoveryService,
                       ThreadPool threadPool, MapperService mapperService, IndexQueryParserService queryParserService, IndexCache indexCache, IndexAliasesService indexAliasesService,
-                      IndicesFilterCache indicesFilterCache, ShardPercolateService shardPercolateService, CodecService codecService,
+                      IndicesQueryCache indicesQueryCache, ShardPercolateService shardPercolateService, CodecService codecService,
                       ShardTermVectorsService termVectorsService, IndexFieldDataService indexFieldDataService, IndexService indexService,
                       @Nullable IndicesWarmer warmer, SnapshotDeletionPolicy deletionPolicy, SimilarityService similarityService, EngineFactory factory,
                       ClusterService clusterService, ShardPath path, BigArrays bigArrays) {
@@ -218,8 +222,8 @@ public class IndexShard extends AbstractIndexShardComponent {
         this.termVectorsService = termVectorsService.setIndexShard(this);
         this.searchService = new ShardSearchStats(indexSettings);
         this.shardWarmerService = new ShardIndexWarmerService(shardId, indexSettings);
-        this.indicesFilterCache = indicesFilterCache;
-        this.shardQueryCache = new ShardQueryCache(shardId, indexSettings);
+        this.indicesQueryCache = indicesQueryCache;
+        this.shardQueryCache = new ShardRequestCache(shardId, indexSettings);
         this.shardFieldData = new ShardFieldData();
         this.percolatorQueriesRegistry = new PercolatorQueriesRegistry(shardId, indexSettings, queryParserService, indexingService, indicesLifecycle, mapperService, indexFieldDataService, shardPercolateService);
         this.shardPercolateService = shardPercolateService;
@@ -241,8 +245,15 @@ public class IndexShard extends AbstractIndexShardComponent {
         this.checkIndexOnStartup = indexSettings.get("index.shard.check_on_startup", "false");
         this.translogConfig = new TranslogConfig(shardId, shardPath().resolveTranslog(), indexSettings, getFromSettings(logger, indexSettings, Translog.Durabilty.REQUEST),
                 bigArrays, threadPool);
-        this.engineConfig = newEngineConfig(translogConfig);
-
+        final QueryCachingPolicy cachingPolicy;
+        // the query cache is a node-level thing, however we want the most popular filters
+        // to be computed on a per-shard basis
+        if (indexSettings.getAsBoolean(QueryCacheSettings.QUERY_CACHE_EVERYTHING, false)) {
+            cachingPolicy = QueryCachingPolicy.ALWAYS_CACHE;
+        } else {
+            cachingPolicy = new UsageTrackingQueryCachingPolicy();
+        }
+        this.engineConfig = newEngineConfig(translogConfig, cachingPolicy);
         this.indexShardOperationCounter = new IndexShardOperationCounter(logger, shardId);
 
     }
@@ -296,7 +307,7 @@ public class IndexShard extends AbstractIndexShardComponent {
         return this.shardWarmerService;
     }
 
-    public ShardQueryCache queryCache() {
+    public ShardRequestCache requestCache() {
         return this.shardQueryCache;
     }
 
@@ -310,6 +321,10 @@ public class IndexShard extends AbstractIndexShardComponent {
      */
     public ShardRouting routingEntry() {
         return this.shardRouting;
+    }
+
+    public QueryCachingPolicy getQueryCachingPolicy() {
+        return this.engineConfig.getQueryCachingPolicy();
     }
 
     /**
@@ -614,8 +629,8 @@ public class IndexShard extends AbstractIndexShardComponent {
         return shardWarmerService.stats();
     }
 
-    public FilterCacheStats filterCacheStats() {
-        return indicesFilterCache.getStats(shardId);
+    public QueryCacheStats queryCacheStats() {
+        return indicesQueryCache.getStats(shardId);
     }
 
     public FieldDataStats fieldDataStats(String... fields) {
@@ -1335,7 +1350,7 @@ public class IndexShard extends AbstractIndexShardComponent {
         return mapperService.documentMapperWithAutoCreate(type);
     }
 
-    private final EngineConfig newEngineConfig(TranslogConfig translogConfig) {
+    private final EngineConfig newEngineConfig(TranslogConfig translogConfig, QueryCachingPolicy cachingPolicy) {
         final TranslogRecoveryPerformer translogRecoveryPerformer = new TranslogRecoveryPerformer(shardId, mapperService, queryParserService, indexAliasesService, indexCache) {
             @Override
             protected void operationProcessed() {
@@ -1345,7 +1360,7 @@ public class IndexShard extends AbstractIndexShardComponent {
         };
         return new EngineConfig(shardId,
                 threadPool, indexingService, indexSettingsService.indexSettings(), warmer, store, deletionPolicy, mergePolicyConfig.getMergePolicy(), mergeSchedulerConfig,
-                mapperService.indexAnalyzer(), similarityService.similarity(), codecService, failedEngineListener, translogRecoveryPerformer, indexCache.filter(), indexCache.filterPolicy(), translogConfig);
+                mapperService.indexAnalyzer(), similarityService.similarity(), codecService, failedEngineListener, translogRecoveryPerformer, indexCache.query(), cachingPolicy, translogConfig);
     }
 
     private static class IndexShardOperationCounter extends AbstractRefCounted {

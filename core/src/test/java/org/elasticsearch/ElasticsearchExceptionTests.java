@@ -19,9 +19,15 @@
 
 package org.elasticsearch;
 
+import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.IndexFormatTooNewException;
+import org.apache.lucene.index.IndexFormatTooOldException;
+import org.apache.lucene.store.AlreadyClosedException;
+import org.apache.lucene.store.LockObtainFailedException;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
+import org.elasticsearch.common.io.stream.NotSerializableExceptionWrapper;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -34,12 +40,15 @@ import org.elasticsearch.indices.IndexMissingException;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchShardTarget;
 import org.elasticsearch.test.ElasticsearchTestCase;
+import org.elasticsearch.test.VersionUtils;
+import org.elasticsearch.test.hamcrest.ElasticsearchAssertions;
 import org.elasticsearch.transport.RemoteTransportException;
 import org.junit.Test;
 
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 
 import static org.hamcrest.Matchers.equalTo;
 
@@ -222,7 +231,7 @@ public class ElasticsearchExceptionTests extends ElasticsearchTestCase {
 
     public void testSerializeElasticsearchException() throws IOException {
         BytesStreamOutput out = new BytesStreamOutput();
-        QueryParsingException ex = new TestQueryParsingException(new Index("foo"), 1, 2, "foobar", null);
+        QueryParsingException ex = new QueryParsingException(new Index("foo"), 1, 2, "foobar", null);
         out.writeThrowable(ex);
 
         StreamInput in = StreamInput.wrap(out.bytes());
@@ -233,4 +242,67 @@ public class ElasticsearchExceptionTests extends ElasticsearchTestCase {
         assertEquals(ex.getColumnNumber(), e.getColumnNumber());
     }
 
+    public void testSerializeUnknownException() throws IOException {
+        BytesStreamOutput out = new BytesStreamOutput();
+        QueryParsingException queryParsingException = new QueryParsingException(new Index("foo"), 1, 2, "foobar", null);
+        Throwable ex = new Throwable("wtf", queryParsingException);
+        out.writeThrowable(ex);
+
+        StreamInput in = StreamInput.wrap(out.bytes());
+        Throwable throwable = in.readThrowable();
+        assertEquals("wtf", throwable.getMessage());
+        assertTrue(throwable instanceof ElasticsearchException);
+        QueryParsingException e = (QueryParsingException)throwable.getCause();
+                assertEquals(queryParsingException.index(), e.index());
+        assertEquals(queryParsingException.getMessage(), e.getMessage());
+        assertEquals(queryParsingException.getLineNumber(), e.getLineNumber());
+        assertEquals(queryParsingException.getColumnNumber(), e.getColumnNumber());
+    }
+
+    public void testWriteThrowable() throws IOException {
+        Throwable[] causes = new Throwable[] {
+                new IllegalStateException("foobar"),
+                new IllegalArgumentException("alalaal"),
+                new NullPointerException("boom"),
+                new EOFException("dadada"),
+                new SecurityException("nono!"),
+                new NumberFormatException("not a number"),
+                new CorruptIndexException("baaaam", "this is my resource"),
+                new IndexFormatTooNewException("tooo new", 1, 1, 1),
+                new IndexFormatTooOldException("tooo new", 1, 1, 1),
+                new ArrayIndexOutOfBoundsException("booom"),
+                new StringIndexOutOfBoundsException("booom"),
+                new FileNotFoundException("booom"),
+                new NoSuchFileException("booom"),
+                new AssertionError("booom", new NullPointerException()),
+                new OutOfMemoryError("no memory left"),
+                new AlreadyClosedException("closed!!", new NullPointerException()),
+                new LockObtainFailedException("can't lock directory", new NullPointerException()),
+                new Throwable("this exception is unknown", new QueryParsingException(new Index("foo"), 1, 2, "foobar", null) ), // somethin unknown
+        };
+        for (Throwable t : causes) {
+            BytesStreamOutput out = new BytesStreamOutput();
+            ElasticsearchException ex = new ElasticsearchException("topLevel", t);
+            out.writeThrowable(ex);
+            StreamInput in = StreamInput.wrap(out.bytes());
+            ElasticsearchException e = in.readThrowable();
+            assertEquals(e.getMessage(), ex.getMessage());
+            if (t instanceof IndexFormatTooNewException || t instanceof IndexFormatTooOldException) {
+                // these don't work yet - missing ctors
+                assertNotEquals(e.getCause().getMessage(), ex.getCause().getMessage());
+            } else {
+                assertEquals(ex.getCause().getClass().getName(), e.getCause().getMessage(), ex.getCause().getMessage());
+            }
+            if (ex.getCause().getClass() != Throwable.class) { // throwable is not directly mapped
+                assertEquals(e.getCause().getClass(), ex.getCause().getClass());
+            } else {
+                assertEquals(e.getCause().getClass(), NotSerializableExceptionWrapper.class);
+            }
+            assertArrayEquals(e.getStackTrace(), ex.getStackTrace());
+            assertTrue(e.getStackTrace().length > 1);
+            ElasticsearchAssertions.assertVersionSerializable(VersionUtils.randomVersion(getRandom()), t);
+            ElasticsearchAssertions.assertVersionSerializable(VersionUtils.randomVersion(getRandom()), ex);
+            ElasticsearchAssertions.assertVersionSerializable(VersionUtils.randomVersion(getRandom()), e);
+        }
+    }
 }

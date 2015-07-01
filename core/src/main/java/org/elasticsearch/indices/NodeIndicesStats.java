@@ -33,8 +33,8 @@ import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentBuilderString;
 import org.elasticsearch.index.Index;
-import org.elasticsearch.index.cache.filter.FilterCacheStats;
 import org.elasticsearch.index.cache.query.QueryCacheStats;
+import org.elasticsearch.index.cache.request.RequestCacheStats;
 import org.elasticsearch.index.engine.SegmentsStats;
 import org.elasticsearch.index.fielddata.FieldDataStats;
 import org.elasticsearch.index.flush.FlushStats;
@@ -51,14 +51,13 @@ import org.elasticsearch.index.suggest.stats.SuggestStats;
 import org.elasticsearch.search.suggest.completion.CompletionStats;
 
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Global information on indices stats running on a specific node.
  */
-public class NodeIndicesStats implements Streamable, Serializable, ToXContent {
+public class NodeIndicesStats implements Streamable, ToXContent {
 
     private CommonStats stats;
     private Map<Index, List<IndexShardStats>> statsByShard;
@@ -132,13 +131,13 @@ public class NodeIndicesStats implements Streamable, Serializable, ToXContent {
     }
 
     @Nullable
-    public FilterCacheStats getFilterCache() {
-        return stats.getFilterCache();
+    public QueryCacheStats getQueryCache() {
+        return stats.getQueryCache();
     }
 
     @Nullable
-    public QueryCacheStats getQueryCache() {
-        return stats.getQueryCache();
+    public RequestCacheStats getRequestCache() {
+        return stats.getRequestCache();
     }
 
     @Nullable

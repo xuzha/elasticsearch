@@ -62,7 +62,7 @@ import org.elasticsearch.index.search.shape.ShapeModule;
 import org.elasticsearch.indices.IndicesModule;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.breaker.CircuitBreakerModule;
-import org.elasticsearch.indices.cache.filter.IndicesFilterCache;
+import org.elasticsearch.indices.cache.query.IndicesQueryCache;
 import org.elasticsearch.indices.cluster.IndicesClusterStateService;
 import org.elasticsearch.indices.fielddata.cache.IndicesFieldDataCache;
 import org.elasticsearch.indices.memory.IndexingMemoryController;
@@ -234,7 +234,7 @@ public class Node implements Releasable {
         logger.info("starting ...");
 
         // hack around dependency injection problem (for now...)
-        injector.getInstance(Discovery.class).setAllocationService(injector.getInstance(AllocationService.class));
+        injector.getInstance(Discovery.class).setRoutingService(injector.getInstance(RoutingService.class));
 
         for (Class<? extends LifecycleComponent> plugin : pluginsService.services()) {
             injector.getInstance(plugin).start();
@@ -348,7 +348,7 @@ public class Node implements Releasable {
         injector.getInstance(IndicesTTLService.class).close();
         injector.getInstance(IndicesService.class).close();
         // close filter/fielddata caches after indices
-        injector.getInstance(IndicesFilterCache.class).close();
+        injector.getInstance(IndicesQueryCache.class).close();
         injector.getInstance(IndicesFieldDataCache.class).close();
         injector.getInstance(IndicesStore.class).close();
         stopWatch.stop().start("routing");
