@@ -19,14 +19,13 @@
 
 package org.elasticsearch.index.cache;
 
-import org.apache.lucene.search.QueryCachingPolicy;
 import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.AbstractIndexComponent;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
-import org.elasticsearch.index.cache.filter.FilterCache;
+import org.elasticsearch.index.cache.query.QueryCache;
 import org.elasticsearch.index.settings.IndexSettings;
 
 import java.io.Closeable;
@@ -37,24 +36,18 @@ import java.io.IOException;
  */
 public class IndexCache extends AbstractIndexComponent implements Closeable {
 
-    private final FilterCache filterCache;
-    private final QueryCachingPolicy filterCachingPolicy;
+    private final QueryCache queryCache;
     private final BitsetFilterCache bitsetFilterCache;
 
     @Inject
-    public IndexCache(Index index, @IndexSettings Settings indexSettings, FilterCache filterCache, QueryCachingPolicy filterCachingPolicy, BitsetFilterCache bitsetFilterCache) {
+    public IndexCache(Index index, @IndexSettings Settings indexSettings, QueryCache queryCache, BitsetFilterCache bitsetFilterCache) {
         super(index, indexSettings);
-        this.filterCache = filterCache;
-        this.filterCachingPolicy = filterCachingPolicy;
+        this.queryCache = queryCache;
         this.bitsetFilterCache = bitsetFilterCache;
     }
 
-    public FilterCache filter() {
-        return filterCache;
-    }
-
-    public QueryCachingPolicy filterPolicy() {
-        return filterCachingPolicy;
+    public QueryCache query() {
+        return queryCache;
     }
 
     /**
@@ -66,11 +59,11 @@ public class IndexCache extends AbstractIndexComponent implements Closeable {
 
     @Override
     public void close() throws IOException {
-        IOUtils.close(filterCache, bitsetFilterCache);
+        IOUtils.close(queryCache, bitsetFilterCache);
     }
 
     public void clear(String reason) {
-        filterCache.clear(reason);
+        queryCache.clear(reason);
         bitsetFilterCache.clear(reason);
     }
 

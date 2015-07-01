@@ -30,11 +30,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.apache.lucene</groupId>
             <artifactId>lucene-test-framework</artifactId>
             <scope>test</scope>
@@ -110,7 +105,7 @@
             <!-- REST API specifications copied from main Elasticsearch specs
                  because they are required to execute the REST tests in plugins  -->
             <testResource>
-                <directory>${project.basedir}/../../rest-api-spec</directory>
+                <directory>${elasticsearch.tools.directory}/rest-api-spec</directory>
                 <targetPath>rest-api-spec</targetPath>
                 <includes>
                     <!-- required by the test framework -->

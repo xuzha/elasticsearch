@@ -130,7 +130,9 @@ public class IntegerFieldMapper extends NumberFieldMapper {
 
     public static final class IntegerFieldType extends NumberFieldType {
 
-        public IntegerFieldType() {}
+        public IntegerFieldType() {
+            super(NumericType.INT);
+        }
 
         protected IntegerFieldType(IntegerFieldType ref) {
             super(ref);
@@ -139,6 +141,11 @@ public class IntegerFieldMapper extends NumberFieldMapper {
         @Override
         public NumberFieldType clone() {
             return new IntegerFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -306,7 +313,7 @@ public class IntegerFieldMapper extends NumberFieldMapper {
 
     protected void addIntegerFields(ParseContext context, List<Field> fields, int value, float boost) {
         if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-            CustomIntegerNumericField field = new CustomIntegerNumericField(this, value, fieldType());
+            CustomIntegerNumericField field = new CustomIntegerNumericField(value, fieldType());
             field.setBoost(boost);
             fields.add(field);
         }
@@ -342,18 +349,15 @@ public class IntegerFieldMapper extends NumberFieldMapper {
 
         private final int number;
 
-        private final NumberFieldMapper mapper;
-
-        public CustomIntegerNumericField(NumberFieldMapper mapper, int number, MappedFieldType fieldType) {
-            super(mapper, number, fieldType);
-            this.mapper = mapper;
+        public CustomIntegerNumericField(int number, MappedFieldType fieldType) {
+            super(number, fieldType);
             this.number = number;
         }
 
         @Override
         public TokenStream tokenStream(Analyzer analyzer, TokenStream previous) throws IOException {
             if (fieldType().indexOptions() != IndexOptions.NONE) {
-                return mapper.popCachedStream().setIntValue(number);
+                return getCachedStream().setIntValue(number);
             }
             return null;
         }

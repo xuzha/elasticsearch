@@ -178,8 +178,12 @@ public class InternalEngine extends Engine {
             }
         }
         final Translog translog = new Translog(translogConfig);
-        if (generation == null) {
-            logger.debug("no translog ID present in the current generation - creating one");
+        if (generation == null || generation.translogUUID == null) {
+            if (generation == null) {
+                logger.debug("no translog ID present in the current generation - creating one");
+            } else if (generation.translogUUID == null) {
+                logger.debug("upgraded translog to pre 2.0 format, associating translog with index - writing translog UUID");
+            }
             boolean success = false;
             try {
                 commitIndexWriter(writer, translog);
@@ -305,9 +309,6 @@ public class InternalEngine extends Engine {
                         Uid uid = Uid.createUid(get.uid().text());
                         throw new VersionConflictEngineException(shardId, uid.type(), uid.id(), versionValue.version(), get.version());
                     }
-                    if (!get.loadSource()) {
-                        return new GetResult(true, versionValue.version(), null);
-                    }
                     Translog.Operation op = translog.read(versionValue.translogLocation());
                     if (op != null) {
                         return new GetResult(true, versionValue.version(), op.getSource());
@@ -334,7 +335,7 @@ public class InternalEngine extends Engine {
             }
         } catch (OutOfMemoryError | IllegalStateException | IOException t) {
             maybeFailEngine("create", t);
-            throw new CreateFailedEngineException(shardId, create, t);
+            throw new CreateFailedEngineException(shardId, create.type(), create.id(), t);
         }
         checkVersionMapRefresh();
     }
@@ -440,7 +441,7 @@ public class InternalEngine extends Engine {
             }
         } catch (OutOfMemoryError | IllegalStateException | IOException t) {
             maybeFailEngine("index", t);
-            throw new IndexFailedEngineException(shardId, index, t);
+            throw new IndexFailedEngineException(shardId, index.type(), index.id(), t);
         }
         checkVersionMapRefresh();
         return created;

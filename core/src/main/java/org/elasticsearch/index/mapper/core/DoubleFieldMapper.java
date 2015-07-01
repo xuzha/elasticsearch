@@ -20,9 +20,11 @@
 package org.elasticsearch.index.mapper.core;
 
 import com.carrotsearch.hppc.DoubleArrayList;
+
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType.NumericType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.search.NumericRangeQuery;
@@ -124,9 +126,11 @@ public class DoubleFieldMapper extends NumberFieldMapper {
         }
     }
 
-    static final class DoubleFieldType extends NumberFieldType {
+    public static final class DoubleFieldType extends NumberFieldType {
 
-        public DoubleFieldType() {}
+        public DoubleFieldType() {
+            super(NumericType.DOUBLE);
+        }
 
         protected DoubleFieldType(DoubleFieldType ref) {
             super(ref);
@@ -135,6 +139,11 @@ public class DoubleFieldMapper extends NumberFieldMapper {
         @Override
         public NumberFieldType clone() {
             return new DoubleFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -288,7 +297,7 @@ public class DoubleFieldMapper extends NumberFieldMapper {
         }
 
         if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-            CustomDoubleNumericField field = new CustomDoubleNumericField(this, value, fieldType());
+            CustomDoubleNumericField field = new CustomDoubleNumericField(value, fieldType());
             field.setBoost(boost);
             fields.add(field);
         }
@@ -334,18 +343,15 @@ public class DoubleFieldMapper extends NumberFieldMapper {
 
         private final double number;
 
-        private final NumberFieldMapper mapper;
-
-        public CustomDoubleNumericField(NumberFieldMapper mapper, double number, NumberFieldType fieldType) {
-            super(mapper, number, fieldType);
-            this.mapper = mapper;
+        public CustomDoubleNumericField(double number, NumberFieldType fieldType) {
+            super(number, fieldType);
             this.number = number;
         }
 
         @Override
         public TokenStream tokenStream(Analyzer analyzer, TokenStream previous) throws IOException {
             if (fieldType().indexOptions() != IndexOptions.NONE) {
-                return mapper.popCachedStream().setDoubleValue(number);
+                return getCachedStream().setDoubleValue(number);
             }
             return null;
         }

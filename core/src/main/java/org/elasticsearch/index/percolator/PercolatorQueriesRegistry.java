@@ -23,17 +23,14 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.CloseableThreadLocal;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.bytes.BytesReference;
-import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.index.cache.IndexCache;
 import org.elasticsearch.index.engine.Engine;
 import org.elasticsearch.index.fielddata.IndexFieldDataService;
 import org.elasticsearch.index.indexing.IndexingOperationListener;
@@ -74,7 +71,6 @@ public class PercolatorQueriesRegistry extends AbstractIndexShardComponent imple
     private final IndexQueryParserService queryParserService;
     private final MapperService mapperService;
     private final IndicesLifecycle indicesLifecycle;
-    private final IndexCache indexCache;
     private final IndexFieldDataService indexFieldDataService;
 
     private final ShardIndexingService indexingService;
@@ -88,23 +84,14 @@ public class PercolatorQueriesRegistry extends AbstractIndexShardComponent imple
 
     private boolean mapUnmappedFieldsAsString;
 
-    private CloseableThreadLocal<QueryParseContext> cache = new CloseableThreadLocal<QueryParseContext>() {
-        @Override
-        protected QueryParseContext initialValue() {
-            return new QueryParseContext(shardId.index(), queryParserService);
-        }
-    };
-
-    @Inject
     public PercolatorQueriesRegistry(ShardId shardId, @IndexSettings Settings indexSettings, IndexQueryParserService queryParserService,
                                      ShardIndexingService indexingService, IndicesLifecycle indicesLifecycle, MapperService mapperService,
-                                     IndexCache indexCache, IndexFieldDataService indexFieldDataService, ShardPercolateService shardPercolateService) {
+                                     IndexFieldDataService indexFieldDataService, ShardPercolateService shardPercolateService) {
         super(shardId, indexSettings);
         this.queryParserService = queryParserService;
         this.mapperService = mapperService;
         this.indicesLifecycle = indicesLifecycle;
         this.indexingService = indexingService;
-        this.indexCache = indexCache;
         this.indexFieldDataService = indexFieldDataService;
         this.shardPercolateService = shardPercolateService;
         this.mapUnmappedFieldsAsString = indexSettings.getAsBoolean(MAP_UNMAPPED_FIELDS_AS_STRING, false);
@@ -202,7 +189,7 @@ public class PercolatorQueriesRegistry extends AbstractIndexShardComponent imple
         if (type != null) {
             QueryParseContext.setTypesWithPrevious(new String[]{type});
         }
-        QueryParseContext context = cache.get();
+        QueryParseContext context = queryParserService.getParseContext();
         try {
             context.reset(parser);
             // This means that fields in the query need to exist in the mapping prior to registering this query
@@ -259,7 +246,7 @@ public class PercolatorQueriesRegistry extends AbstractIndexShardComponent imple
         }
 
         @Override
-        public void afterIndexShardPostRecovery(IndexShard indexShard) {
+        public void beforeIndexShardPostRecovery(IndexShard indexShard) {
             if (hasPercolatorType(indexShard)) {
                 // percolator index has started, fetch what we can from it and initialize the indices
                 // we have
@@ -276,8 +263,9 @@ public class PercolatorQueriesRegistry extends AbstractIndexShardComponent imple
 
         private int loadQueries(IndexShard shard) {
             shard.refresh("percolator_load_queries");
-            // Maybe add a mode load? This isn't really a write. We need write b/c state=post_recovery
-            try (Engine.Searcher searcher = shard.acquireSearcher("percolator_load_queries", true)) {
+            // NOTE: we acquire the searcher via the engine directly here since this is executed right
+            // before the shard is marked as POST_RECOVERY
+            try (Engine.Searcher searcher = shard.engine().acquireSearcher("percolator_load_queries")) {
                 Query query = new TermQuery(new Term(TypeFieldMapper.NAME, PercolatorService.TYPE_NAME));
                 QueriesLoaderCollector queryCollector = new QueriesLoaderCollector(PercolatorQueriesRegistry.this, logger, mapperService, indexFieldDataService);
                 searcher.searcher().search(query, queryCollector);

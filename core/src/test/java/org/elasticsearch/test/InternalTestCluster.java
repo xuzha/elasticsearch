@@ -30,6 +30,8 @@ import com.google.common.collect.*;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+
+import org.apache.lucene.store.StoreRateLimiting;
 import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
@@ -63,16 +65,17 @@ import org.elasticsearch.common.settings.Settings.Builder;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.unit.ByteSizeUnit;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.BigArraysModule;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.http.HttpServerTransport;
 import org.elasticsearch.index.IndexService;
-import org.elasticsearch.index.cache.filter.FilterCacheModule;
-import org.elasticsearch.index.cache.filter.FilterCacheModule.FilterCacheSettings;
-import org.elasticsearch.index.cache.filter.index.IndexFilterCache;
-import org.elasticsearch.index.cache.filter.none.NoneFilterCache;
+import org.elasticsearch.index.cache.query.QueryCacheModule;
+import org.elasticsearch.index.cache.query.QueryCacheModule.QueryCacheSettings;
+import org.elasticsearch.index.cache.query.index.IndexQueryCache;
+import org.elasticsearch.index.cache.query.none.NoneQueryCache;
 import org.elasticsearch.index.engine.CommitStats;
 import org.elasticsearch.index.engine.Engine;
 import org.elasticsearch.index.engine.EngineClosedException;
@@ -80,17 +83,18 @@ import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.IndexShardModule;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.index.store.IndexStoreModule;
-import org.elasticsearch.index.translog.TranslogConfig;
-import org.elasticsearch.index.translog.TranslogWriter;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.indices.breaker.HierarchyCircuitBreakerService;
+import org.elasticsearch.indices.cache.request.IndicesRequestCache;
 import org.elasticsearch.indices.fielddata.cache.IndicesFieldDataCache;
 import org.elasticsearch.indices.recovery.RecoverySettings;
+import org.elasticsearch.indices.store.IndicesStore;
 import org.elasticsearch.node.Node;
 import org.elasticsearch.node.internal.InternalSettingsPreparer;
 import org.elasticsearch.node.service.NodeService;
 import org.elasticsearch.plugins.PluginsService;
+import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.SearchServiceModule;
 import org.elasticsearch.test.cache.recycler.MockBigArraysModule;
@@ -364,8 +368,6 @@ public final class InternalTestCluster extends TestCluster {
     private static Settings getRandomNodeSettings(long seed) {
         Random random = new Random(seed);
         Builder builder = Settings.settingsBuilder()
-                // decrease the routing schedule so new nodes will be added quickly - some random value between 30 and 80 ms
-                .put("cluster.routing.schedule", (30 + random.nextInt(50)) + "ms")
                 .put(SETTING_CLUSTER_NODE_SEED, seed);
         if (ENABLE_MOCK_MODULES && usually(random)) {
             builder.put(IndexStoreModule.STORE_TYPE, MockFSIndexStoreModule.class.getName());
@@ -436,20 +438,49 @@ public final class InternalTestCluster extends TestCluster {
         }
 
         if (random.nextBoolean()) {
-            builder.put(FilterCacheModule.FilterCacheSettings.FILTER_CACHE_TYPE, random.nextBoolean() ? IndexFilterCache.class : NoneFilterCache.class);
+            builder.put(QueryCacheModule.QueryCacheSettings.QUERY_CACHE_TYPE, random.nextBoolean() ? IndexQueryCache.class : NoneQueryCache.class);
         }
 
         if (random.nextBoolean()) {
-            builder.put(FilterCacheSettings.FILTER_CACHE_EVERYTHING, random.nextBoolean());
+            builder.put(QueryCacheSettings.QUERY_CACHE_EVERYTHING, random.nextBoolean());
         }
 
         if (random.nextBoolean()) {
-            builder.put(TranslogConfig.INDEX_TRANSLOG_FS_TYPE, RandomPicks.randomFrom(random, TranslogWriter.Type.values()));
-            if (rarely(random)) {
-                builder.put(TranslogConfig.INDEX_TRANSLOG_SYNC_INTERVAL, 0); // 0 has special meaning to sync each op
+            if (random.nextInt(10) == 0) { // do something crazy slow here
+                builder.put(IndicesStore.INDICES_STORE_THROTTLE_MAX_BYTES_PER_SEC, new ByteSizeValue(RandomInts.randomIntBetween(random, 1, 10), ByteSizeUnit.MB));
             } else {
-                builder.put(TranslogConfig.INDEX_TRANSLOG_SYNC_INTERVAL, RandomInts.randomIntBetween(random, 100, 5000), TimeUnit.MILLISECONDS);
+                builder.put(IndicesStore.INDICES_STORE_THROTTLE_MAX_BYTES_PER_SEC, new ByteSizeValue(RandomInts.randomIntBetween(random, 10, 200), ByteSizeUnit.MB));
             }
+        }
+        if (random.nextBoolean()) {
+            builder.put(IndicesStore.INDICES_STORE_THROTTLE_TYPE, RandomPicks.randomFrom(random, StoreRateLimiting.Type.values()));
+        }
+
+        if (random.nextBoolean()) {
+            if (random.nextInt(10) == 0) { // do something crazy slow here
+                builder.put(RecoverySettings.INDICES_RECOVERY_MAX_BYTES_PER_SEC, new ByteSizeValue(RandomInts.randomIntBetween(random, 1, 10), ByteSizeUnit.MB));
+            } else {
+                builder.put(RecoverySettings.INDICES_RECOVERY_MAX_BYTES_PER_SEC, new ByteSizeValue(RandomInts.randomIntBetween(random, 10, 200), ByteSizeUnit.MB));
+            }
+        }
+
+        if (random.nextBoolean()) {
+            builder.put(RecoverySettings.INDICES_RECOVERY_COMPRESS, random.nextBoolean());
+        }
+
+        if (random.nextBoolean()) {
+            builder.put(IndicesRequestCache.INDICES_CACHE_QUERY_CONCURRENCY_LEVEL, RandomInts.randomIntBetween(random, 1, 32));
+            builder.put(IndicesFieldDataCache.FIELDDATA_CACHE_CONCURRENCY_LEVEL, RandomInts.randomIntBetween(random, 1, 32));
+        }
+        if (random.nextBoolean()) {
+            builder.put(NettyTransport.PING_SCHEDULE, RandomInts.randomIntBetween(random, 100, 2000) + "ms");
+        }
+
+        if (random.nextBoolean()) {
+            builder.put(ScriptService.SCRIPT_CACHE_SIZE_SETTING, RandomInts.randomIntBetween(random, -100, 2000));
+        }
+        if (random.nextBoolean()) {
+            builder.put(ScriptService.SCRIPT_CACHE_EXPIRE_SETTING, TimeValue.timeValueMillis(RandomInts.randomIntBetween(random, 750, 10000000)));
         }
 
         return builder.build();
@@ -1776,7 +1807,7 @@ public final class InternalTestCluster extends TestCluster {
                 NodeService nodeService = getInstanceFromNode(NodeService.class, nodeAndClient.node);
                 NodeStats stats = nodeService.stats(CommonStatsFlags.ALL, false, false, false, false, false, false, false, false, false);
                 assertThat("Fielddata size must be 0 on node: " + stats.getNode(), stats.getIndices().getFieldData().getMemorySizeInBytes(), equalTo(0l));
-                assertThat("Filter cache size must be 0 on node: " + stats.getNode(), stats.getIndices().getFilterCache().getMemorySizeInBytes(), equalTo(0l));
+                assertThat("Query cache size must be 0 on node: " + stats.getNode(), stats.getIndices().getQueryCache().getMemorySizeInBytes(), equalTo(0l));
                 assertThat("FixedBitSet cache size must be 0 on node: " + stats.getNode(), stats.getIndices().getSegments().getBitsetMemoryInBytes(), equalTo(0l));
             }
         }

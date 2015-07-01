@@ -22,6 +22,7 @@ package org.elasticsearch.index.mapper.core;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType.NumericType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.search.NumericRangeQuery;
@@ -126,7 +127,9 @@ public class ShortFieldMapper extends NumberFieldMapper {
 
     static final class ShortFieldType extends NumberFieldType {
 
-        public ShortFieldType() {}
+        public ShortFieldType() {
+            super(NumericType.INT);
+        }
 
         protected ShortFieldType(ShortFieldType ref) {
             super(ref);
@@ -135,6 +138,11 @@ public class ShortFieldMapper extends NumberFieldMapper {
         @Override
         public NumberFieldType clone() {
             return new ShortFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -299,7 +307,7 @@ public class ShortFieldMapper extends NumberFieldMapper {
             }
         }
         if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-            CustomShortNumericField field = new CustomShortNumericField(this, value, fieldType());
+            CustomShortNumericField field = new CustomShortNumericField(value, fieldType());
             field.setBoost(boost);
             fields.add(field);
         }
@@ -335,18 +343,15 @@ public class ShortFieldMapper extends NumberFieldMapper {
 
         private final short number;
 
-        private final NumberFieldMapper mapper;
-
-        public CustomShortNumericField(NumberFieldMapper mapper, short number, NumberFieldType fieldType) {
-            super(mapper, number, fieldType);
-            this.mapper = mapper;
+        public CustomShortNumericField(short number, NumberFieldType fieldType) {
+            super(number, fieldType);
             this.number = number;
         }
 
         @Override
         public TokenStream tokenStream(Analyzer analyzer, TokenStream previous) throws IOException {
             if (fieldType().indexOptions() != IndexOptions.NONE) {
-                return mapper.popCachedStream().setIntValue(number);
+                return getCachedStream().setIntValue(number);
             }
             return null;
         }

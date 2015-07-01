@@ -37,12 +37,11 @@ import org.elasticsearch.index.fielddata.FieldDataType;
 import org.elasticsearch.index.mapper.DocumentMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.Mapper;
-import org.elasticsearch.index.mapper.MapperBuilders;
 import org.elasticsearch.index.mapper.MapperParsingException;
 import org.elasticsearch.index.mapper.MergeMappingException;
 import org.elasticsearch.index.mapper.MergeResult;
 import org.elasticsearch.index.mapper.ParseContext;
-import org.elasticsearch.index.mapper.RootMapper;
+import org.elasticsearch.index.mapper.MetadataFieldMapper;
 import org.elasticsearch.index.mapper.Uid;
 import org.elasticsearch.index.mapper.core.AbstractFieldMapper;
 import org.elasticsearch.index.query.QueryParseContext;
@@ -54,19 +53,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import static org.elasticsearch.common.settings.Settings.builder;
 import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 import static org.elasticsearch.common.xcontent.support.XContentMapValues.nodeMapValue;
 
 /**
  *
  */
-public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper {
+public class ParentFieldMapper extends MetadataFieldMapper {
 
     public static final String NAME = "_parent";
-
     public static final String CONTENT_TYPE = "_parent";
-
 
     public static class Defaults extends AbstractFieldMapper.Defaults {
         public static final String NAME = ParentFieldMapper.NAME;
@@ -81,11 +77,12 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
             FIELD_TYPE.setIndexAnalyzer(Lucene.KEYWORD_ANALYZER);
             FIELD_TYPE.setSearchAnalyzer(Lucene.KEYWORD_ANALYZER);
             FIELD_TYPE.setNames(new MappedFieldType.Names(NAME));
+            FIELD_TYPE.setFieldDataType(new FieldDataType("_parent", settingsBuilder().put(MappedFieldType.Loading.KEY, MappedFieldType.Loading.LAZY_VALUE)));
             FIELD_TYPE.freeze();
         }
     }
 
-    public static class Builder extends AbstractFieldMapper.Builder<Builder, ParentFieldMapper> {
+    public static class Builder extends MetadataFieldMapper.Builder<Builder, ParentFieldMapper> {
 
         protected String indexName;
 
@@ -121,7 +118,7 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
     public static class TypeParser implements Mapper.TypeParser {
         @Override
         public Mapper.Builder parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
-            ParentFieldMapper.Builder builder = MapperBuilders.parent();
+            Builder builder = new Builder();
             for (Iterator<Map.Entry<String, Object>> iterator = node.entrySet().iterator(); iterator.hasNext();) {
                 Map.Entry<String, Object> entry = iterator.next();
                 String fieldName = Strings.toUnderscoreCase(entry.getKey());
@@ -148,9 +145,7 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
 
     static final class ParentFieldType extends MappedFieldType {
 
-        public ParentFieldType() {
-            super(AbstractFieldMapper.Defaults.FIELD_TYPE);
-        }
+        public ParentFieldType() {}
 
         protected ParentFieldType(ParentFieldType ref) {
             super(ref);
@@ -159,6 +154,11 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
         @Override
         public MappedFieldType clone() {
             return new ParentFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -234,11 +234,11 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
         this.type = type;
     }
 
-    public ParentFieldMapper(Settings indexSettings) {
-        this(Defaults.FIELD_TYPE.clone(), null, null, indexSettings);
-        this.fieldType = this.fieldType().clone();
-        this.fieldType().setFieldDataType(new FieldDataType("_parent", settingsBuilder().put(MappedFieldType.Loading.KEY, MappedFieldType.Loading.LAZY_VALUE)));
-        this.fieldType().freeze();
+    public ParentFieldMapper(Settings indexSettings, MappedFieldType existing) {
+        this(existing == null ? Defaults.FIELD_TYPE.clone() : existing.clone(),
+             null,
+             existing == null ? null : (existing.fieldDataType() == null ? null : existing.fieldDataType().getSettings()),
+             indexSettings);
     }
 
     public String type() {
@@ -328,7 +328,7 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
 
         builder.startObject(CONTENT_TYPE);
         builder.field("type", type);
-        if (customFieldDataSettings != null) {
+        if (hasCustomFieldDataSettings()) {
             builder.field("fielddata", (Map) customFieldDataSettings.getAsMap());
         } else if (includeDefaults) {
             builder.field("fielddata", (Map) fieldType().fieldDataType().getSettings().getAsMap());
@@ -339,21 +339,10 @@ public class ParentFieldMapper extends AbstractFieldMapper implements RootMapper
 
     @Override
     public void merge(Mapper mergeWith, MergeResult mergeResult) throws MergeMappingException {
-        ParentFieldMapper other = (ParentFieldMapper) mergeWith;
-        if (Objects.equal(type, other.type) == false) {
-            mergeResult.addConflict("The _parent field's type option can't be changed: [" + type + "]->[" + other.type + "]");
-        }
-
-        if (!mergeResult.simulate()) {
-            ParentFieldMapper fieldMergeWith = (ParentFieldMapper) mergeWith;
-            this.fieldType = fieldMergeWith.fieldType().clone();
-            this.fieldType().freeze();
-
-            if (fieldMergeWith.customFieldDataSettings != null) {
-                if (!Objects.equal(fieldMergeWith.customFieldDataSettings, this.customFieldDataSettings)) {
-                    this.customFieldDataSettings = fieldMergeWith.customFieldDataSettings;
-                }
-            }
+        super.merge(mergeWith, mergeResult);
+        ParentFieldMapper fieldMergeWith = (ParentFieldMapper) mergeWith;
+        if (Objects.equal(type, fieldMergeWith.type) == false) {
+            mergeResult.addConflict("The _parent field's type option can't be changed: [" + type + "]->[" + fieldMergeWith.type + "]");
         }
     }
 

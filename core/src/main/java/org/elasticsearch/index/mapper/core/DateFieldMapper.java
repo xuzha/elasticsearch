@@ -20,6 +20,7 @@
 package org.elasticsearch.index.mapper.core;
 
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType.NumericType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.Terms;
@@ -29,6 +30,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.NumericUtils;
 import org.apache.lucene.util.ToStringUtils;
+import org.elasticsearch.Version;
 import org.elasticsearch.action.fieldstats.FieldStats;
 import org.elasticsearch.common.Explicit;
 import org.elasticsearch.common.Nullable;
@@ -45,18 +47,17 @@ import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.index.analysis.NumericDateAnalyzer;
 import org.elasticsearch.index.fielddata.FieldDataType;
-import org.elasticsearch.index.mapper.*;
+import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.Mapper;
+import org.elasticsearch.index.mapper.MapperParsingException;
+import org.elasticsearch.index.mapper.ParseContext;
 import org.elasticsearch.index.mapper.core.LongFieldMapper.CustomLongNumericField;
 import org.elasticsearch.index.query.QueryParseContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.joda.time.DateTimeZone;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
@@ -69,7 +70,7 @@ public class DateFieldMapper extends NumberFieldMapper {
     public static final String CONTENT_TYPE = "date";
 
     public static class Defaults extends NumberFieldMapper.Defaults {
-        public static final FormatDateTimeFormatter DATE_TIME_FORMATTER = Joda.forPattern("dateOptionalTime", Locale.ROOT);
+        public static final FormatDateTimeFormatter DATE_TIME_FORMATTER = Joda.forPattern("dateOptionalTime||epoch_millis", Locale.ROOT);
         public static final TimeUnit TIME_UNIT = TimeUnit.MILLISECONDS;
         public static final DateFieldType FIELD_TYPE = new DateFieldType();
 
@@ -125,6 +126,14 @@ public class DateFieldMapper extends NumberFieldMapper {
 
         protected void setupFieldType(BuilderContext context) {
             FormatDateTimeFormatter dateTimeFormatter = fieldType().dateTimeFormatter;
+            // TODO MOVE ME OUTSIDE OF THIS SPACE?
+            if (Version.indexCreated(context.indexSettings()).before(Version.V_2_0_0)) {
+                boolean includesEpochFormatter = dateTimeFormatter.format().contains("epoch_");
+                if (!includesEpochFormatter) {
+                    String format = fieldType().timeUnit().equals(TimeUnit.SECONDS) ? "epoch_second" : "epoch_millis";
+                    fieldType().setDateTimeFormatter(Joda.forPattern(format + "||" + dateTimeFormatter.format()));
+                }
+            }
             if (!locale.equals(dateTimeFormatter.locale())) {
                 fieldType().setDateTimeFormatter(new FormatDateTimeFormatter(dateTimeFormatter.format(), dateTimeFormatter.parser(), dateTimeFormatter.printer(), locale));
             }
@@ -221,7 +230,9 @@ public class DateFieldMapper extends NumberFieldMapper {
         protected TimeUnit timeUnit = Defaults.TIME_UNIT;
         protected DateMathParser dateMathParser = new DateMathParser(dateTimeFormatter);
 
-        public DateFieldType() {}
+        public DateFieldType() {
+            super(NumericType.LONG);
+        }
 
         protected DateFieldType(DateFieldType ref) {
             super(ref);
@@ -239,12 +250,35 @@ public class DateFieldMapper extends NumberFieldMapper {
             if (!super.equals(o)) return false;
             DateFieldType that = (DateFieldType) o;
             return Objects.equals(dateTimeFormatter.format(), that.dateTimeFormatter.format()) &&
+                   Objects.equals(dateTimeFormatter.locale(), that.dateTimeFormatter.locale()) &&
                    Objects.equals(timeUnit, that.timeUnit);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(super.hashCode(), dateTimeFormatter.format(), timeUnit);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
+        }
+
+        @Override
+        public void checkCompatibility(MappedFieldType fieldType, List<String> conflicts, boolean strict) {
+            super.checkCompatibility(fieldType, conflicts, strict);
+            if (strict) {
+                DateFieldType other = (DateFieldType)fieldType;
+                if (Objects.equals(dateTimeFormatter().format(), other.dateTimeFormatter().format()) == false) {
+                    conflicts.add("mapper [" + names().fullName() + "] is used by multiple types. Set update_all_types to true to update [format] across all types.");
+                }
+                if (Objects.equals(dateTimeFormatter().locale(), other.dateTimeFormatter().locale()) == false) {
+                    conflicts.add("mapper [" + names().fullName() + "] is used by multiple types. Set update_all_types to true to update [locale] across all types.");
+                }
+                if (Objects.equals(timeUnit(), other.timeUnit()) == false) {
+                    conflicts.add("mapper [" + names().fullName() + "] is used by multiple types. Set update_all_types to true to update [numeric_resolution] across all types.");
+                }
+            }
         }
 
         public FormatDateTimeFormatter dateTimeFormatter() {
@@ -282,15 +316,7 @@ public class DateFieldMapper extends NumberFieldMapper {
         }
 
         protected long parseStringValue(String value) {
-            try {
-                return dateTimeFormatter().parser().parseMillis(value);
-            } catch (RuntimeException e) {
-                try {
-                    return timeUnit().toMillis(Long.parseLong(value));
-                } catch (NumberFormatException e1) {
-                    throw new MapperParsingException("failed to parse date field [" + value + "], tried both date format [" + dateTimeFormatter().format() + "], and timestamp number with locale [" + dateTimeFormatter().locale() + "]", e);
-                }
-            }
+            return dateTimeFormatter().parser().parseMillis(value);
         }
 
         @Override
@@ -476,7 +502,7 @@ public class DateFieldMapper extends NumberFieldMapper {
 
         if (value != null) {
             if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-                CustomLongNumericField field = new CustomLongNumericField(this, value, fieldType());
+                CustomLongNumericField field = new CustomLongNumericField(value, fieldType());
                 field.setBoost(boost);
                 fields.add(field);
             }

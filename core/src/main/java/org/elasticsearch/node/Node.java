@@ -62,7 +62,7 @@ import org.elasticsearch.index.search.shape.ShapeModule;
 import org.elasticsearch.indices.IndicesModule;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.breaker.CircuitBreakerModule;
-import org.elasticsearch.indices.cache.filter.IndicesFilterCache;
+import org.elasticsearch.indices.cache.query.IndicesQueryCache;
 import org.elasticsearch.indices.cluster.IndicesClusterStateService;
 import org.elasticsearch.indices.fielddata.cache.IndicesFieldDataCache;
 import org.elasticsearch.indices.memory.IndexingMemoryController;
@@ -86,6 +86,7 @@ import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchModule;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.snapshots.SnapshotsService;
+import org.elasticsearch.snapshots.SnapshotShardsService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.threadpool.ThreadPoolModule;
 import org.elasticsearch.transport.TransportModule;
@@ -233,7 +234,7 @@ public class Node implements Releasable {
         logger.info("starting ...");
 
         // hack around dependency injection problem (for now...)
-        injector.getInstance(Discovery.class).setAllocationService(injector.getInstance(AllocationService.class));
+        injector.getInstance(Discovery.class).setRoutingService(injector.getInstance(RoutingService.class));
 
         for (Class<? extends LifecycleComponent> plugin : pluginsService.services()) {
             injector.getInstance(plugin).start();
@@ -245,6 +246,7 @@ public class Node implements Releasable {
         injector.getInstance(IndicesClusterStateService.class).start();
         injector.getInstance(IndicesTTLService.class).start();
         injector.getInstance(SnapshotsService.class).start();
+        injector.getInstance(SnapshotShardsService.class).start();
         injector.getInstance(TransportService.class).start();
         injector.getInstance(ClusterService.class).start();
         injector.getInstance(RoutingService.class).start();
@@ -253,7 +255,7 @@ public class Node implements Releasable {
         injector.getInstance(RestController.class).start();
 
         // TODO hack around circular dependecncies problems
-        injector.getInstance(GatewayAllocator.class).setReallocation(injector.getInstance(ClusterService.class), injector.getInstance(AllocationService.class));
+        injector.getInstance(GatewayAllocator.class).setReallocation(injector.getInstance(ClusterService.class), injector.getInstance(RoutingService.class));
 
         DiscoveryService discoService = injector.getInstance(DiscoveryService.class).start();
         discoService.waitForInitialState();
@@ -286,6 +288,7 @@ public class Node implements Releasable {
         }
 
         injector.getInstance(SnapshotsService.class).stop();
+        injector.getInstance(SnapshotShardsService.class).stop();
         // stop any changes happening as a result of cluster state changes
         injector.getInstance(IndicesClusterStateService.class).stop();
         // we close indices first, so operations won't be allowed on it
@@ -335,6 +338,7 @@ public class Node implements Releasable {
         }
         stopWatch.stop().start("snapshot_service");
         injector.getInstance(SnapshotsService.class).close();
+        injector.getInstance(SnapshotShardsService.class).close();
         stopWatch.stop().start("client");
         Releasables.close(injector.getInstance(Client.class));
         stopWatch.stop().start("indices_cluster");
@@ -344,7 +348,7 @@ public class Node implements Releasable {
         injector.getInstance(IndicesTTLService.class).close();
         injector.getInstance(IndicesService.class).close();
         // close filter/fielddata caches after indices
-        injector.getInstance(IndicesFilterCache.class).close();
+        injector.getInstance(IndicesQueryCache.class).close();
         injector.getInstance(IndicesFieldDataCache.class).close();
         injector.getInstance(IndicesStore.class).close();
         stopWatch.stop().start("routing");

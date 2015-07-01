@@ -43,6 +43,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -499,28 +500,36 @@ public final class XContentBuilder implements BytesStream, Releasable {
 
     public XContentBuilder field(String name, BigDecimal value, int scale, RoundingMode rounding, boolean toDouble) throws IOException {
         field(name);
-        if (toDouble) {
-            try {
-                generator.writeNumber(value.setScale(scale, rounding).doubleValue());
-            } catch (ArithmeticException e) {
+        if (value == null) {
+            generator.writeNull();
+        } else {
+            if (toDouble) {
+                try {
+                    generator.writeNumber(value.setScale(scale, rounding).doubleValue());
+                } catch (ArithmeticException e) {
+                    generator.writeString(value.toEngineeringString());
+                }
+            } else {
                 generator.writeString(value.toEngineeringString());
             }
-        } else {
-            generator.writeString(value.toEngineeringString());
         }
         return this;
     }
 
     public XContentBuilder field(XContentBuilderString name, BigDecimal value, int scale, RoundingMode rounding, boolean toDouble) throws IOException {
         field(name);
-        if (toDouble) {
-            try {
-                generator.writeNumber(value.setScale(scale, rounding).doubleValue());
-            } catch (ArithmeticException e) {
+        if (value == null) {
+            generator.writeNull();
+        } else {
+            if (toDouble) {
+                try {
+                    generator.writeNumber(value.setScale(scale, rounding).doubleValue());
+                } catch (ArithmeticException e) {
+                    generator.writeString(value.toEngineeringString());
+                }
+            } else {
                 generator.writeString(value.toEngineeringString());
             }
-        } else {
-            generator.writeString(value.toEngineeringString());
         }
         return this;
     }
@@ -954,6 +963,14 @@ public final class XContentBuilder implements BytesStream, Releasable {
             field(readableFieldName, new ByteSizeValue(rawSize).toString());
         }
         field(rawFieldName, rawSize);
+        return this;
+    }
+
+    public XContentBuilder percentageField(XContentBuilderString rawFieldName, XContentBuilderString readableFieldName, double percentage) throws IOException {
+        if (humanReadable) {
+            field(readableFieldName, String.format(Locale.ROOT, "%1.1f%%", percentage));
+        }
+        field(rawFieldName, percentage);
         return this;
     }
 

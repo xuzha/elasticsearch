@@ -21,8 +21,13 @@ package org.elasticsearch.action.search;
 
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.common.io.Streams;
+import org.elasticsearch.common.xcontent.ToXContent;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.test.ElasticsearchTestCase;
 import org.junit.Test;
+
+import java.io.IOException;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
@@ -101,17 +106,25 @@ public class MultiSearchRequestTests extends ElasticsearchTestCase {
         assertThat(request.requests().size(), equalTo(3));
         assertThat(request.requests().get(0).indices()[0], equalTo("test0"));
         assertThat(request.requests().get(0).indices()[1], equalTo("test1"));
-        assertThat(request.requests().get(0).queryCache(), equalTo(true));
+        assertThat(request.requests().get(0).requestCache(), equalTo(true));
         assertThat(request.requests().get(0).preference(), nullValue());
         assertThat(request.requests().get(1).indices()[0], equalTo("test2"));
         assertThat(request.requests().get(1).indices()[1], equalTo("test3"));
         assertThat(request.requests().get(1).types()[0], equalTo("type1"));
-        assertThat(request.requests().get(1).queryCache(), nullValue());
+        assertThat(request.requests().get(1).requestCache(), nullValue());
         assertThat(request.requests().get(1).preference(), equalTo("_local"));
         assertThat(request.requests().get(2).indices()[0], equalTo("test4"));
         assertThat(request.requests().get(2).indices()[1], equalTo("test1"));
         assertThat(request.requests().get(2).types()[0], equalTo("type2"));
         assertThat(request.requests().get(2).types()[1], equalTo("type1"));
         assertThat(request.requests().get(2).routing(), equalTo("123"));
+    }
+
+    public void testResponseErrorToXContent() throws IOException {
+        MultiSearchResponse response = new MultiSearchResponse(new MultiSearchResponse.Item[]{new MultiSearchResponse.Item(null, new IllegalStateException("foobar")), new MultiSearchResponse.Item(null, new IllegalStateException("baaaaaazzzz"))});
+        XContentBuilder builder = XContentFactory.jsonBuilder();
+        response.toXContent(builder, ToXContent.EMPTY_PARAMS);
+        assertEquals("\"responses\"[{\"error\":{\"root_cause\":[{\"type\":\"illegal_state_exception\",\"reason\":\"foobar\"}],\"type\":\"illegal_state_exception\",\"reason\":\"foobar\"}},{\"error\":{\"root_cause\":[{\"type\":\"illegal_state_exception\",\"reason\":\"baaaaaazzzz\"}],\"type\":\"illegal_state_exception\",\"reason\":\"baaaaaazzzz\"}}]",
+                builder.string());
     }
 }

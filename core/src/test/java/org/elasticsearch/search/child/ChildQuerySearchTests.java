@@ -30,9 +30,9 @@ import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.common.lucene.search.function.CombineFunction;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
-import org.elasticsearch.index.cache.filter.FilterCacheModule;
-import org.elasticsearch.index.cache.filter.FilterCacheModule.FilterCacheSettings;
-import org.elasticsearch.index.cache.filter.index.IndexFilterCache;
+import org.elasticsearch.index.cache.query.QueryCacheModule;
+import org.elasticsearch.index.cache.query.QueryCacheModule.QueryCacheSettings;
+import org.elasticsearch.index.cache.query.index.IndexQueryCache;
 import org.elasticsearch.index.mapper.MergeMappingException;
 import org.elasticsearch.index.query.HasChildQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -75,8 +75,8 @@ public class ChildQuerySearchTests extends ElasticsearchIntegrationTest {
     protected Settings nodeSettings(int nodeOrdinal) {
         return Settings.settingsBuilder().put(super.nodeSettings(nodeOrdinal))
                 // aggressive filter caching so that we can assert on the filter cache size
-                .put(FilterCacheModule.FilterCacheSettings.FILTER_CACHE_TYPE, IndexFilterCache.class)
-                .put(FilterCacheSettings.FILTER_CACHE_EVERYTHING, true)
+                .put(QueryCacheModule.QueryCacheSettings.QUERY_CACHE_TYPE, IndexQueryCache.class)
+                .put(QueryCacheSettings.QUERY_CACHE_EVERYTHING, true)
                 .build();
     }
 
@@ -790,7 +790,7 @@ public class ChildQuerySearchTests extends ElasticsearchIntegrationTest {
         client().prepareIndex("test", "child", "2").setParent("1").setSource("c_field", 1).get();
         client().admin().indices().prepareFlush("test").get();
 
-        client().prepareIndex("test", "type1", "3").setSource("p_field", "p_value1").get();
+        client().prepareIndex("test", "type1", "3").setSource("p_field", 2).get();
         client().admin().indices().prepareFlush("test").get();
 
         SearchResponse searchResponse = client().prepareSearch("test")
@@ -1163,7 +1163,7 @@ public class ChildQuerySearchTests extends ElasticsearchIntegrationTest {
                 .addMapping("child1"));
         ensureGreen();
 
-        client().prepareIndex("test", "parent", "p1").setSource("p_field", "p_value1", "_parent", "bla").get();
+        client().prepareIndex("test", "parent", "p1").setSource("p_field", "p_value1").get();
         try {
             client().prepareIndex("test", "child1", "c1").setParent("p1").setSource("c_field", "blue").get();
             fail();

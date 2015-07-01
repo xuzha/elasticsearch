@@ -20,8 +20,10 @@
 package org.elasticsearch.index.mapper.ip;
 
 import com.google.common.net.InetAddresses;
+
 import org.apache.lucene.analysis.NumericTokenStream;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType.NumericType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.search.NumericRangeQuery;
 import org.apache.lucene.search.Query;
@@ -158,7 +160,9 @@ public class IpFieldMapper extends NumberFieldMapper {
 
     public static final class IpFieldType extends NumberFieldType {
 
-        public IpFieldType() {}
+        public IpFieldType() {
+            super(NumericType.LONG);
+        }
 
         protected IpFieldType(IpFieldType ref) {
             super(ref);
@@ -167,6 +171,11 @@ public class IpFieldMapper extends NumberFieldMapper {
         @Override
         public NumberFieldType clone() {
             return new IpFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -279,7 +288,7 @@ public class IpFieldMapper extends NumberFieldMapper {
 
         final long value = ipToLong(ipAsString);
         if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-            CustomLongNumericField field = new CustomLongNumericField(this, value, fieldType());
+            CustomLongNumericField field = new CustomLongNumericField(value, fieldType());
             field.setBoost(fieldType().boost());
             fields.add(field);
         }

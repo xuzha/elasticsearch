@@ -20,9 +20,11 @@
 package org.elasticsearch.index.mapper.core;
 
 import com.carrotsearch.hppc.FloatArrayList;
+
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType.NumericType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.search.NumericRangeQuery;
@@ -127,7 +129,9 @@ public class FloatFieldMapper extends NumberFieldMapper {
 
     static final class FloatFieldType extends NumberFieldType {
 
-        public FloatFieldType() {}
+        public FloatFieldType() {
+            super(NumericType.FLOAT);
+        }
 
         protected FloatFieldType(FloatFieldType ref) {
             super(ref);
@@ -136,6 +140,11 @@ public class FloatFieldMapper extends NumberFieldMapper {
         @Override
         public NumberFieldType clone() {
             return new FloatFieldType(this);
+        }
+
+        @Override
+        public String typeName() {
+            return CONTENT_TYPE;
         }
 
         @Override
@@ -300,7 +309,7 @@ public class FloatFieldMapper extends NumberFieldMapper {
         }
 
         if (fieldType().indexOptions() != IndexOptions.NONE || fieldType().stored()) {
-            CustomFloatNumericField field = new CustomFloatNumericField(this, value, fieldType());
+            CustomFloatNumericField field = new CustomFloatNumericField(value, fieldType());
             field.setBoost(boost);
             fields.add(field);
         }
@@ -346,18 +355,15 @@ public class FloatFieldMapper extends NumberFieldMapper {
 
         private final float number;
 
-        private final NumberFieldMapper mapper;
-
-        public CustomFloatNumericField(NumberFieldMapper mapper, float number, NumberFieldType fieldType) {
-            super(mapper, number, fieldType);
-            this.mapper = mapper;
+        public CustomFloatNumericField(float number, NumberFieldType fieldType) {
+            super(number, fieldType);
             this.number = number;
         }
 
         @Override
         public TokenStream tokenStream(Analyzer analyzer, TokenStream previous) throws IOException {
             if (fieldType().indexOptions() != IndexOptions.NONE) {
-                return mapper.popCachedStream().setFloatValue(number);
+                return getCachedStream().setFloatValue(number);
             }
             return null;
         }
