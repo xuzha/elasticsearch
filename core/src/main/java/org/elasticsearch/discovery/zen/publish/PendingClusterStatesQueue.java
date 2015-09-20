@@ -283,4 +283,17 @@ public class PendingClusterStatesQueue {
         }
     }
 
+    public ClusterStateQueueStats stats() {
+
+        // calculate committed cluster state
+        int committed = 0;
+        for (ClusterStateContext clusterStatsContext : pendingStates) {
+            if (clusterStatsContext.committed()) {
+                committed += 1;
+            }
+        }
+
+        return new ClusterStateQueueStats(pendingStates.size(), pendingStates.size() - committed, committed);
+    }
+
 }

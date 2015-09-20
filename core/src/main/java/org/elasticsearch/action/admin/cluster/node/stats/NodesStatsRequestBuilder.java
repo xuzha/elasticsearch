@@ -19,7 +19,6 @@
 
 package org.elasticsearch.action.admin.cluster.node.stats;
 
-import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags;
 import org.elasticsearch.action.support.nodes.NodesOperationRequestBuilder;
 import org.elasticsearch.client.ElasticsearchClient;
@@ -128,6 +127,11 @@ public class NodesStatsRequestBuilder extends NodesOperationRequestBuilder<Nodes
      */
     public NodesStatsRequestBuilder setHttp(boolean http) {
         request.http(http);
+        return this;
+    }
+
+    public NodesStatsRequestBuilder clusterStatQueue(boolean clusterStatQueue) {
+        request.clusterStateQueue(clusterStatQueue);
         return this;
     }
 }

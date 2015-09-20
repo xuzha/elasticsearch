@@ -30,6 +30,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.discovery.local.LocalDiscovery;
 import org.elasticsearch.discovery.zen.ZenDiscovery;
 import org.elasticsearch.discovery.zen.elect.ElectMasterService;
+import org.elasticsearch.discovery.zen.publish.ClusterStateQueueStats;
 import org.elasticsearch.node.service.NodeService;
 
 /**
@@ -114,6 +115,11 @@ public class DiscoveryModuleTests extends ModuleTestCase {
         @Override
         public void publish(ClusterChangedEvent clusterChangedEvent, AckListener ackListener) {
 
+        }
+
+        @Override
+        public ClusterStateQueueStats stats() {
+            return null;
         }
 
         @Override

@@ -36,6 +36,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.discovery.*;
+import org.elasticsearch.discovery.zen.publish.ClusterStateQueueStats;
 import org.elasticsearch.node.service.NodeService;
 import org.elasticsearch.transport.TransportService;
 
@@ -314,6 +315,11 @@ public class LocalDiscovery extends AbstractLifecycleComponent<Discovery> implem
             }
             publish(members, clusterChangedEvent, new AckClusterStatePublishResponseHandler(nodesToPublishTo, ackListener));
         }
+    }
+
+    @Override
+    public ClusterStateQueueStats stats() {
+        return new ClusterStateQueueStats();
     }
 
     private LocalDiscovery[] members() {

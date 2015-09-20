@@ -133,6 +133,13 @@ public class ZenDiscoveryIT extends ESIntegTestCase {
         r = client().admin().indices().prepareRecoveries("test").get();
         int numRecoveriesAfterNewMaster = r.shardRecoveryStates().get("test").size();
         assertThat(numRecoveriesAfterNewMaster, equalTo(numRecoveriesBeforeNewMaster));
+
+        String nodeName = internalCluster().startNode(masterNodeSettings);
+        ZenDiscovery zenDiscovery = (ZenDiscovery) internalCluster().getInstance(Discovery.class, nodeName);
+
+        int a = zenDiscovery.stats().getTotal();
+        int v = zenDiscovery.stats().getCommitted();
+        int z = zenDiscovery.stats().getPending();
     }
 
     @Test

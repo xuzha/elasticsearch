@@ -147,13 +147,14 @@ public class NodeService extends AbstractComponent {
                 transportService.stats(),
                 httpServer == null ? null : httpServer.stats(),
                 circuitBreakerService.stats(),
-                scriptService.stats()
+                scriptService.stats(),
+                discovery.stats()
         );
     }
 
     public NodeStats stats(CommonStatsFlags indices, boolean os, boolean process, boolean jvm, boolean threadPool,
                            boolean fs, boolean transport, boolean http, boolean circuitBreaker,
-                           boolean script) {
+                           boolean script, boolean clusterStatusQueue) {
         // for indices stats we want to include previous allocated shards stats as well (it will
         // only be applied to the sensible ones to use, like refresh/merge/flush/indexing stats)
         return new NodeStats(discovery.localNode(), System.currentTimeMillis(),
@@ -166,7 +167,8 @@ public class NodeService extends AbstractComponent {
                 transport ? transportService.stats() : null,
                 http ? (httpServer == null ? null : httpServer.stats()) : null,
                 circuitBreaker ? circuitBreakerService.stats() : null,
-                script ? scriptService.stats() : null
+                script ? scriptService.stats() : null,
+                clusterStatusQueue ? discovery.stats() : null
         );
     }
 }

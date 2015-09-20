@@ -41,6 +41,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
     private boolean http;
     private boolean breaker;
     private boolean script;
+    private boolean clusterStateQueue;
 
     public NodesStatsRequest() {
     }
@@ -67,6 +68,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         this.http = true;
         this.breaker = true;
         this.script = true;
+        this.clusterStateQueue = true;
         return this;
     }
 
@@ -84,6 +86,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         this.http = false;
         this.breaker = false;
         this.script = false;
+        this.clusterStateQueue = false;
         return this;
     }
 
@@ -234,6 +237,17 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         return this;
     }
 
+
+    public boolean clusterStateQueue() {
+        return this.clusterStateQueue;
+    }
+
+    public NodesStatsRequest clusterStateQueue(boolean clusterStatQueue) {
+        this.clusterStateQueue = clusterStatQueue;
+        return this;
+    }
+
+
     @Override
     public void readFrom(StreamInput in) throws IOException {
         super.readFrom(in);
@@ -247,6 +261,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         http = in.readBoolean();
         breaker = in.readBoolean();
         script = in.readBoolean();
+        clusterStateQueue = in.readBoolean();
     }
 
     @Override
@@ -262,6 +277,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         out.writeBoolean(http);
         out.writeBoolean(breaker);
         out.writeBoolean(script);
+        out.writeBoolean(clusterStateQueue);
     }
 
 }

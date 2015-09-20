@@ -26,6 +26,7 @@ import org.elasticsearch.cluster.routing.RoutingService;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.io.stream.StreamInput;
+import org.elasticsearch.discovery.zen.publish.ClusterStateQueueStats;
 import org.elasticsearch.node.service.NodeService;
 
 import java.io.IOException;
@@ -87,4 +88,10 @@ public interface Discovery extends LifecycleComponent<Discovery> {
             super(msg, cause, args);
         }
     }
+
+    /**
+     * @return stats about the discovery
+     */
+    public ClusterStateQueueStats stats();
+
 }

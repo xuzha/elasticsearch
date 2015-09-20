@@ -35,6 +35,7 @@ import org.elasticsearch.common.Table;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.discovery.zen.publish.ClusterStateQueueStats;
 import org.elasticsearch.index.cache.query.QueryCacheStats;
 import org.elasticsearch.index.cache.request.RequestCacheStats;
 import org.elasticsearch.index.engine.SegmentsStats;
@@ -93,7 +94,7 @@ public class RestNodesAction extends AbstractCatAction {
                     @Override
                     public void processResponse(final NodesInfoResponse nodesInfoResponse) {
                         NodesStatsRequest nodesStatsRequest = new NodesStatsRequest();
-                        nodesStatsRequest.clear().jvm(true).os(true).fs(true).indices(true).process(true).script(true);
+                        nodesStatsRequest.clear().jvm(true).os(true).fs(true).indices(true).process(true).script(true).clusterStateQueue(true);
                         client.admin().cluster().nodesStats(nodesStatsRequest, new RestResponseListener<NodesStatsResponse>(channel) {
                             @Override
                             public RestResponse buildResponse(NodesStatsResponse nodesStatsResponse) throws Exception {
@@ -187,6 +188,10 @@ public class RestNodesAction extends AbstractCatAction {
 
         table.addCell("script.compilations", "alias:scrcc,scriptCompilations;default:false;text-align:right;desc:script compilations");
         table.addCell("script.cache_evictions", "alias:scrce,scriptCacheEvictions;default:false;text-align:right;desc:script cache evictions");
+
+        table.addCell("clusterStateQueueStats.total", "alias:cst,total;default:false;text-align:right;desc:cluster state queue size");
+        table.addCell("clusterStateQueueStats.committed", "alias:csqc,committed;default:false;text-align:right;desc:cluster state committed");
+        table.addCell("clusterStateQueueStats.pending", "alias:csqp,pending;default:false;text-align:right;desc:cluster stats pending");
 
         table.addCell("search.fetch_current", "alias:sfc,searchFetchCurrent;default:false;text-align:right;desc:current fetch phase ops");
         table.addCell("search.fetch_time", "alias:sfti,searchFetchTime;default:false;text-align:right;desc:time spent in fetch phase");
@@ -326,6 +331,11 @@ public class RestNodesAction extends AbstractCatAction {
             ScriptStats scriptStats = stats == null ? null : stats.getScriptStats();
             table.addCell(scriptStats == null ? null : scriptStats.getCompilations());
             table.addCell(scriptStats == null ? null : scriptStats.getCacheEvictions());
+
+            ClusterStateQueueStats clusterStateQueueStats = stats == null ? null : stats.getClusterStateQueueStats();
+            table.addCell(clusterStateQueueStats == null ? null : clusterStateQueueStats.getTotal());
+            table.addCell(clusterStateQueueStats == null ? null : clusterStateQueueStats.getCommitted());
+            table.addCell(clusterStateQueueStats == null ? null : clusterStateQueueStats.getPending());
 
             SearchStats searchStats = indicesStats == null ? null : indicesStats.getSearch();
             table.addCell(searchStats == null ? null : searchStats.getTotal().getFetchCurrent());
