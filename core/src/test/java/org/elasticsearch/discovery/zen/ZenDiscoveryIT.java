@@ -136,10 +136,6 @@ public class ZenDiscoveryIT extends ESIntegTestCase {
 
         String nodeName = internalCluster().startNode(masterNodeSettings);
         ZenDiscovery zenDiscovery = (ZenDiscovery) internalCluster().getInstance(Discovery.class, nodeName);
-
-        int a = zenDiscovery.stats().getTotal();
-        int v = zenDiscovery.stats().getCommitted();
-        int z = zenDiscovery.stats().getPending();
     }
 
     @Test

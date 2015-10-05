@@ -92,6 +92,6 @@ public interface Discovery extends LifecycleComponent<Discovery> {
     /**
      * @return stats about the discovery
      */
-    public ClusterStateQueueStats stats();
+    ClusterStateQueueStats stats();
 
 }

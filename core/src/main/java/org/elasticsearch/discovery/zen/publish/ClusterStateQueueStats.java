@@ -22,13 +22,11 @@ package org.elasticsearch.discovery.zen.publish;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
-import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentBuilderString;
 
 import java.io.IOException;
-import java.util.Locale;
 
 /**
  * Class encapsulating stats about the PendingClusterStatsQueue
@@ -63,7 +61,7 @@ public class ClusterStateQueueStats implements Streamable, ToXContent {
 
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
-        builder.startObject(Fields.PENDINGQUEUE);
+        builder.startObject(Fields.QUEUE);
         builder.field(Fields.TOTAL, total);
         builder.field(Fields.PENDING, pending);
         builder.field(Fields.COMMITTED, committed);
@@ -86,10 +84,14 @@ public class ClusterStateQueueStats implements Streamable, ToXContent {
     }
 
     static final class Fields {
-
-        static final XContentBuilderString PENDINGQUEUE = new XContentBuilderString("clusterstate_queue");
+        static final XContentBuilderString QUEUE = new XContentBuilderString("pending_clusterstate_queue");
         static final XContentBuilderString TOTAL = new XContentBuilderString("total");
         static final XContentBuilderString PENDING = new XContentBuilderString("pending");
         static final XContentBuilderString COMMITTED = new XContentBuilderString("committed");
+    }
+
+    @Override
+    public String toString() {
+        return "ClusterStateQueueStats(total="+total+", pending="+pending+", committed=)" + committed;
     }
 }

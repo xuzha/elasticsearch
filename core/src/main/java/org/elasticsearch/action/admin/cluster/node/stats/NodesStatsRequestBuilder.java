@@ -130,7 +130,10 @@ public class NodesStatsRequestBuilder extends NodesOperationRequestBuilder<Nodes
         return this;
     }
 
-    public NodesStatsRequestBuilder clusterStatQueue(boolean clusterStatQueue) {
+    /**
+     * Should the pending cluster state queue stats be returned.
+     */
+    public NodesStatsRequestBuilder setClusterStatQueue(boolean clusterStatQueue) {
         request.clusterStateQueue(clusterStatQueue);
         return this;
     }
